@@ -36,10 +36,28 @@ directly into CI as a gate.
 
 - `pp_tps` — prompt-processing (prefill) throughput → drives TTFT
 - `tg_tps` — token-generation (decode) throughput → drives ITL / steady state
-- `ttft_ms`, `itl` — latency (measured by serving runners; derived on the
-  llama-bench single-stream runner)
+- `ttft_ms`, `itl` — **measured** by serving runners (`llama_server`,
+  `openai_serving`) from a real HTTP stream; on `llama_cpp` (llama-bench)
+  `ttft_ms`/`itl.mean_ms` are **derived** and percentiles are left empty
+  (honestly unmeasured)
 - `price_per_input_1m`, `price_per_output_1m` — $/1M tokens when an instance
   price is supplied
+
+## Serving runner (measured latency)
+
+```bash
+# starts a real llama-server, measures TTFT/ITL, tears it down
+INFERCI_LLAMA_SERVER=../llama.cpp/build/bin/llama-server \
+inferci run --backend llama_server --model-file ../models/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+            --model-id Qwen2.5-0.5B-Instruct --quantization Q4_K_M \
+            --prompt-tokens 64 --gen-tokens 32 --device cpu
+```
+
+## Dashboard
+
+```bash
+inferci dashboard --db inferci.db --out dashboard.html
+```
 
 ## Adding a runner
 

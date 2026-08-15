@@ -21,21 +21,29 @@ PRICE_CATALOG = {
 
 
 def lookup_price(instance_type: str) -> dict | None:
-    return PRICE_CATALOG.get(instance_type)
+    entry = PRICE_CATALOG.get(instance_type)
+    return dict(entry) if entry else None
 
 
 def compute_cost(pp_tps: float, tg_tps: float,
                  instance_type: str | None = None,
                  instance_hourly: float | None = None) -> CostResult:
     """Derive $/1M tokens from throughput + instance price."""
-    if instance_type and instance_type in PRICE_CATALOG:
-        hourly = PRICE_CATALOG[instance_type]["hourly"]
-        source = f"catalog:{instance_type}"
-    elif instance_hourly is not None:
+    if instance_hourly is not None:
         hourly = instance_hourly
         source = "user-supplied"
+    elif instance_type:
+        entry = PRICE_CATALOG.get(instance_type)
+        if entry is None:
+            raise ValueError(
+                f"unknown instance_type {instance_type!r}; available: "
+                f"{sorted(PRICE_CATALOG)} (or pass instance_hourly)"
+            )
+        hourly = entry["hourly"]
+        source = f"catalog:{instance_type}"
     else:
-        return CostResult(instance_type=instance_type or "local",
+        # Only a truly local run (no instance requested) is priced as local.
+        return CostResult(instance_type="local",
                           source="local (no cloud price; you own hardware)")
 
     per_sec = hourly / 3600.0

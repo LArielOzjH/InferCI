@@ -21,6 +21,17 @@ class TestCost(unittest.TestCase):
         c = compute_cost(0.0, 0.0, instance_hourly=3.6)
         self.assertEqual(c.price_per_output_1m, 0.0)
 
+    def test_unknown_instance_raises(self):
+        with self.assertRaises(ValueError):
+            compute_cost(100.0, 50.0, instance_type="gpu.typo.not-real")
+
+    def test_lookup_returns_copy(self):
+        import copy
+        e = lookup_price("gpu.a10g.g5.xlarge")
+        self.assertIsNotNone(e)
+        e["hourly"] = 999.0
+        self.assertNotEqual(lookup_price("gpu.a10g.g5.xlarge")["hourly"], 999.0)
+
 
 if __name__ == "__main__":
     unittest.main()

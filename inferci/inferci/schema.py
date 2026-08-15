@@ -10,7 +10,7 @@ import datetime
 import json
 import platform
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Optional
 
 SPEC_VERSION = "0.1.0"
@@ -21,7 +21,15 @@ def now_utc() -> str:
 
 
 def new_run_id() -> str:
-    return uuid.uuid4().hex[:12]
+    # full 128-bit UUID: a truncated id risks birthday collisions that would
+    # collide inside the append-only ledger.
+    return str(uuid.uuid4())
+
+
+def _pick(d: dict, cls) -> dict:
+    """Keep only keys that are declared fields of `cls` (tolerant deserialization)."""
+    names = {f.name for f in fields(cls)}
+    return {k: v for k, v in d.items() if k in names}
 
 
 @dataclass
@@ -140,21 +148,24 @@ class RunResult:
 
     @classmethod
     def from_dict(cls, d: dict) -> "RunResult":
-        spec_d = dict(d.get("spec", {}))
-        sampling = Sampling(**spec_d.pop("sampling", {}))
+        # Tolerant: unknown/extra keys (from future or foreign BYO runners) are
+        # dropped instead of crashing the whole read. Nested dataclasses are
+        # rebuilt explicitly so their own fields are also filtered.
+        spec_d = _pick(d.get("spec") or {}, BenchmarkSpec)
+        sampling = Sampling(**_pick(spec_d.pop("sampling", None) or {}, Sampling))
         spec = BenchmarkSpec(sampling=sampling, **spec_d)
-        env_d = dict(d.get("environment", {}))
-        acc = Accelerator(**env_d.pop("accelerator", {}))
+        env_d = _pick(d.get("environment") or {}, Environment)
+        acc = Accelerator(**_pick(env_d.pop("accelerator", None) or {}, Accelerator))
         env = Environment(accelerator=acc, **env_d)
-        m_d = dict(d.get("metrics", {}))
-        itl = PerTokenLatency(**m_d.pop("itl", {}))
+        m_d = _pick(d.get("metrics") or {}, Metrics)
+        itl = PerTokenLatency(**_pick(m_d.pop("itl", None) or {}, PerTokenLatency))
         metrics = Metrics(itl=itl, **m_d)
-        cost = CostResult(**d["cost"]) if d.get("cost") else None
+        cost = CostResult(**_pick(d.get("cost") or {}, CostResult)) if d.get("cost") else None
         return cls(
-            run_id=d.get("run_id", new_run_id()),
+            run_id=d.get("run_id") or new_run_id(),
             spec=spec, environment=env, metrics=metrics, cost=cost,
-            created_at=d.get("created_at", now_utc()),
-            raw=d.get("raw", {}),
+            created_at=d.get("created_at") or now_utc(),
+            raw=d.get("raw") or {},
         )
 
 

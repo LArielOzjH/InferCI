@@ -79,8 +79,9 @@ def compare_runs(base: RunResult, cand: RunResult,
             b = getattr(m1, metric)
             c = getattr(m2, metric)
 
-        if b == 0.0 and c == 0.0:
-            findings.append(RegressionFinding(metric, b, c, 0.0, t.get(key, 0.0), Verdict.NO_DATA, "not measured"))
+        if b == 0.0 or c == 0.0:
+            note = "not measured" if b == 0.0 and c == 0.0 else "zero/missing baseline (cannot compare)"
+            findings.append(RegressionFinding(metric, b, c, 0.0, t.get(key, 0.0), Verdict.NO_DATA, note))
             continue
 
         rel = _rel(b, c)
@@ -118,3 +119,27 @@ def compare_runs(base: RunResult, cand: RunResult,
 
 def any_regression(findings: list[RegressionFinding]) -> bool:
     return any(f.verdict == Verdict.REGRESSION for f in findings)
+
+
+def comparability_issues(base: RunResult, cand: RunResult) -> list[str]:
+    """Return the reasons two runs are NOT fairly comparable (apples-to-oranges).
+
+    Deliberately excludes `backend_version`: comparing the *same* workload across
+    two versions of an engine is exactly what a regression gate does, so a
+    version difference is the variable under test, not an incompatibility.
+    """
+    issues: list[str] = []
+    if base.environment.accelerator.kind != cand.environment.accelerator.kind:
+        issues.append(
+            f"accelerator differs: {base.environment.accelerator.kind!r} vs "
+            f"{cand.environment.accelerator.kind!r}"
+        )
+    s1, s2 = base.spec.sampling, cand.spec.sampling
+    if (s1.temperature, s1.top_p, s1.top_k, s1.seed) != \
+            (s2.temperature, s2.top_p, s2.top_k, s2.seed):
+        issues.append("sampling differs (temperature/top_p/top_k/seed)")
+    d1 = base.spec.extra.get("device")
+    d2 = cand.spec.extra.get("device")
+    if d1 and d2 and d1 != d2:
+        issues.append(f"device differs: {d1!r} vs {d2!r}")
+    return issues

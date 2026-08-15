@@ -18,18 +18,21 @@ and are never caught.
 ## 2. Components
 
 ```
-┌───────────── runners (BYO) ─────────────┐
-│  llama_cpp (llama-bench)   [v0.1]       │
-│  vllm / sglang / trt-llm   [planned]    │
-└──────────────┬──────────────────────────┘
+┌───────────── runners (BYO) ──────────────────┐
+│  llama_cpp     (llama-bench, CPU/Metal)      │
+│  llama_server  (measured TTFT/ITL)           │
+│  openai_serving (any /v1/completions)        │
+│  vllm / sglang / trt-llm   [planned]         │
+└──────────────┬───────────────────────────────┘
                │  RunResult (schema.py)
-┌──────────────▼──────────────────────────┐
-│  harness  (methodology.py: pinned spec) │
-│  store    (sqlite ledger, append-only)  │
-│  regression (judge: thresholds + noise) │
-│  cost     (throughput × price → $/1M)   │
-│  cli      (run / list / diff / report)  │
-└─────────────────────────────────────────┘
+┌──────────────▼───────────────────────────────┐
+│  harness  (methodology.py: pinned spec)      │
+│  store    (sqlite ledger, append-only)       │
+│  regression (judge: thresholds + tolerance)  │
+│  cost     (throughput × price → $/1M)        │
+│  dashboard (static HTML from the ledger)     │
+│  cli      (run / list / diff / report / dashboard) │
+└──────────────────────────────────────────────┘
 ```
 
 ### schema.py
@@ -71,8 +74,8 @@ append-only, open, reproducible ledger builds.
 
 - **D1–14** ✅ core: schema/harness/store/judge/cost/CLI + llama.cpp runner
 - **D15–30** ✅ real CPU PoC + unit tests + CI
-- **D31–60** ➡️ serving runners (vLLM/SGLang), batch>1, measured (not derived) TTFT/ITL
-- **D61–90** ➡️ long-context quality gate (quality-per-$), public dashboard, ROCm/AMD coverage
+- **D31–60** ✅ serving runners (llama-server + generic OpenAI), measured (not derived) TTFT/ITL, static dashboard
+- **D61–90** ➡️ vLLM/SGLang serving runners, long-context quality gate (quality-per-$), hosted public dashboard, ROCm/AMD coverage
 
 ## 5. Design constraints
 

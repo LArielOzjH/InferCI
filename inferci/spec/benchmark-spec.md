@@ -19,13 +19,26 @@ real scheduler). On the single-stream llama-bench runner it is **derived**
 ## 2. Determinism rules
 
 - **Pinned lengths**: `prompt_tokens`, `gen_tokens` are fixed per spec.
-- **Pinned seed**: sampling seed `42` by default; same seed → same token stream.
-- **Pinned sampling**: temperature/top-p/top-k fixed (decode for benchmarks is
-  greedy by default, `temperature=1.0` with seed → deterministic).
-- **Warmup**: `warmup_repeats` runs discarded before timing.
+- **Pinned seed / sampling**: `sampling` (temperature/top-p/top-k/seed) is
+  applied by the *serving* runners (`llama_server`, `openai_serving`), which
+  pass it to the engine. The `llama_cpp` (llama-bench) runner is greedy
+  single-stream and takes no sampling parameters — it records the spec verbatim
+  but never claims the engine used non-greedy sampling.
+- **Warmup**: `warmup_repeats` runs are discarded before timing (serving
+  runners); the `llama_cpp` runner honors warmup as on/off only.
 - **Repeats**: `repeats` timed runs; mean and std are both recorded.
 - **Environment captured automatically** (never hand-typed): backend version /
   commit, CPU, RAM, accelerator, OS.
+
+### Latency: measured vs derived
+
+| runner | TTFT / ITL | percentiles |
+|---|---|---|
+| `llama_server`, `openai_serving` | **measured** from a real HTTP stream | measured (mean/p50/p95/p99) |
+| `llama_cpp` (llama-bench) | **derived** (`ttft ≈ prompt/pp_tps`, `itl.mean = 1/tg_tps`) | not measured (left 0) |
+
+The `llama_cpp` runner is single-stream (`batch` must be 1); `batch>1` requires
+a serving runner.
 
 ## 3. Default matrix (CPU-first)
 

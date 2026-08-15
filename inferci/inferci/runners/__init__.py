@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from .base import Runner
 from .llama_cpp import LlamaCppRunner
+from .serving import OpenAIServingRunner
+from .llama_server import LlamaServerRunner
 
 _REGISTRY: dict[str, Runner] = {}
 
@@ -29,5 +31,10 @@ def available_runners() -> list[str]:
 
 # Register built-in runners.
 register(LlamaCppRunner())
+register(OpenAIServingRunner())
+register(LlamaServerRunner())
 
-__all__ = ["Runner", "LlamaCppRunner", "get_runner", "register", "available_runners"]
+__all__ = [
+    "Runner", "LlamaCppRunner", "OpenAIServingRunner", "LlamaServerRunner",
+    "get_runner", "register", "available_runners",
+]

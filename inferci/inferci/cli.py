@@ -15,10 +15,14 @@ import sys
 
 from . import __version__
 from .cost import compute_cost
-from .regression import compare_runs
+from .regression import any_regression, comparability_issues, compare_runs
 from .runners import get_runner, available_runners
 from .schema import BenchmarkSpec, Sampling, capture_local_environment
 from .store import Store
+
+
+def _fmt_ts(iso: str) -> str:
+    return iso[:19] if iso else ""
 
 
 def _build_spec(args) -> BenchmarkSpec:
@@ -69,9 +73,9 @@ def cmd_run(args) -> int:
 def cmd_list(args) -> int:
     store = Store(args.db)
     runs = store.list(limit=args.limit, backend=args.backend, model_id=args.model)
-    print(f"{'run_id':<14}{'created':<22}{'backend':<12}{'model':<22}{'q':<10}{'tg_tps':>9}{'pp_tps':>10}")
+    print(f"{'run_id':<14}{'created':<20}{'backend':<14}{'model':<22}{'q':<10}{'tg_tps':>9}{'pp_tps':>10}")
     for r in runs:
-        print(f"{r.run_id:<14}{r.created_at[:19]:<22}{r.spec.backend:<12}"
+        print(f"{r.run_id[:12]:<14}{_fmt_ts(r.created_at):<20}{r.spec.backend:<14}"
               f"{r.spec.model_id:<22}{r.spec.quantization:<10}"
               f"{r.metrics.tg_tps:>9.2f}{r.metrics.pp_tps:>10.2f}")
     return 0
@@ -85,19 +89,39 @@ def cmd_diff(args) -> int:
         print("run_id not found", file=sys.stderr)
         return 1
     if base.spec.canonical_id() != cand.spec.canonical_id():
-        print("WARNING: specs differ; comparison may be apples-to-oranges:", file=sys.stderr)
+        print("WARNING: spec ids differ; comparison may be apples-to-oranges:", file=sys.stderr)
         print(f"  base: {base.spec.canonical_id()}", file=sys.stderr)
         print(f"  cand: {cand.spec.canonical_id()}", file=sys.stderr)
+    issues = comparability_issues(base, cand)
+    if issues:
+        print("ERROR: runs are not fairly comparable:", file=sys.stderr)
+        for i in issues:
+            print(f"  - {i}", file=sys.stderr)
+        if not args.force:
+            print("refusing to compare (pass --force to override)", file=sys.stderr)
+            return 2
     findings = compare_runs(base, cand)
     print(f"base={args.base} ({base.environment.backend_version})  ->  cand={args.candidate} ({cand.environment.backend_version})")
     for f in findings:
         print("  " + f.fmt())
-    return 1 if any(f.verdict.value == "regression" for f in findings) else 0
+    return 1 if any_regression(findings) else 0
+
+
+def cmd_dashboard(args) -> int:
+    from .dashboard import render_html
+    store = Store(args.db)
+    runs = store.list(limit=None)
+    html = render_html(runs)
+    out = args.out or "dashboard.html"
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"wrote {out} ({len(runs)} runs)")
+    return 0
 
 
 def cmd_report(args) -> int:
     store = Store(args.db)
-    runs = store.list(limit=1000)
+    runs = store.list(limit=None)
     if not runs:
         print("no runs yet")
         return 0
@@ -123,7 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("run", help="run a benchmark")
     r.add_argument("--backend", default="llama_cpp", choices=available_runners())
     r.add_argument("--model-file", required=True)
-    r.add_argument("--model-id", default="")
+    r.add_argument("--model-id", required=True, help="canonical model name (used in the spec id)")
     r.add_argument("--quantization", default="")
     r.add_argument("--prompt-tokens", type=int, default=512)
     r.add_argument("--gen-tokens", type=int, default=128)
@@ -151,11 +175,17 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("base")
     d.add_argument("candidate")
     d.add_argument("--db", default="inferci.db")
+    d.add_argument("--force", action="store_true", help="compare even if runs are not fairly comparable")
     d.set_defaults(func=cmd_diff)
 
-    rep = sub.add_parser("report", help="summary over history")
+    rep = sub.add_parser("report", help="summary over full history")
     rep.add_argument("--db", default="inferci.db")
     rep.set_defaults(func=cmd_report)
+
+    dash = sub.add_parser("dashboard", help="render a static HTML dashboard from the ledger")
+    dash.add_argument("--db", default="inferci.db")
+    dash.add_argument("--out", default=None)
+    dash.set_defaults(func=cmd_dashboard)
 
     return p
 

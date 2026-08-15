@@ -136,7 +136,7 @@ class LlamaCppRunner(Runner):
             )
         return self.binary
 
-    def _run_bench(self, spec: BenchmarkSpec, ngl: int) -> tuple[dict[str, tuple[float, float]], str]:
+    def _run_bench(self, spec: BenchmarkSpec, ngl: int) -> tuple[dict[str, tuple[float, float]], str, str]:
         binary = self._binary_or_raise()
         cmd = [
             binary,
@@ -147,16 +147,38 @@ class LlamaCppRunner(Runner):
             "-ngl", str(ngl),
             "-o", "json",
         ]
+        threads = int(spec.extra.get("threads") or 0)
+        if threads > 0:
+            cmd += ["-t", str(threads)]
         if spec.warmup_repeats <= 0:
             cmd.append("--no-warmup")
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"llama-bench timed out after {e.timeout}s") from e
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"llama-bench failed (rc={proc.returncode}): {proc.stderr.strip()[:2000]}"
+            )
+
         parsed = _parse_json(proc.stdout)
+        raw = proc.stdout
         if not parsed:
-            # fallback: default markdown table
-            cmd2 = [c for c in cmd if c not in ("-o", "json")]
+            # fallback: default markdown table (drop '-o json' by position, not
+            # by value, so a model file named 'json' is not affected)
+            cmd2 = list(cmd)
+            if "-o" in cmd2:
+                i = cmd2.index("-o")
+                del cmd2[i:i + 2]
             proc2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=1800)
+            if proc2.returncode != 0:
+                raise RuntimeError(
+                    f"llama-bench fallback failed (rc={proc2.returncode}): {proc2.stderr.strip()[:2000]}"
+                )
             parsed = _parse_text(proc2.stdout)
-        return parsed, proc.stdout
+            raw = proc.stdout + "\n--- fallback (markdown) ---\n" + proc2.stdout
+        return parsed, raw, proc.stderr
 
     def capture_environment(self) -> Environment:
         env = capture_local_environment(backend=self.id)
@@ -180,27 +202,35 @@ class LlamaCppRunner(Runner):
             return None
 
     def run(self, spec: BenchmarkSpec, environment: Environment) -> RunResult:
+        if spec.batch > 1:
+            raise ValueError(
+                "llama_cpp runner is single-stream; batch>1 requires a serving "
+                "runner (e.g. --backend llama_server)"
+            )
         ngl = 0
         dev = spec.extra.get("device", "cpu")
         if dev in ("metal", "cuda", "gpu", "all"):
             ngl = int(spec.extra.get("ngl", 99))
-        parsed, raw = self._run_bench(spec, ngl)
+        parsed, stdout, stderr = self._run_bench(spec, ngl)
 
         pp_key = f"pp{spec.prompt_tokens}"
         tg_key = f"tg{spec.gen_tokens}"
         pp_tps, pp_std = parsed.get(pp_key, (0.0, 0.0))
         tg_tps, tg_std = parsed.get(tg_key, (0.0, 0.0))
+        if pp_tps == 0.0 and tg_tps == 0.0:
+            raise RuntimeError(
+                f"llama-bench produced no pp/tg metrics; stdout={stdout[:500]!r}"
+            )
 
         metrics = Metrics(
             pp_tps=pp_tps,
             tg_tps=tg_tps,
             pp_tps_std=pp_std,
             tg_tps_std=tg_std,
-            # derived (single-stream): TTFT ~ prefill time, ITL ~ 1/decode tps
+            # derived (single-stream): TTFT ~ prefill time, mean ITL = 1/decode tps
             ttft_ms=(spec.prompt_tokens / pp_tps * 1000.0) if pp_tps > 0 else 0.0,
             itl=PerTokenLatency(
                 mean_ms=(1000.0 / tg_tps) if tg_tps > 0 else 0.0,
-                p50_ms=(1000.0 / tg_tps) if tg_tps > 0 else 0.0,
             ),
             prompt_tokens=spec.prompt_tokens,
             generated_tokens=spec.gen_tokens,
@@ -216,6 +246,12 @@ class LlamaCppRunner(Runner):
             spec=spec,
             environment=environment,
             metrics=metrics,
-            raw={"runner": self.id, "llama_bench_raw": raw[:4000],
-                 "ttft_ms": "derived", "itl": "derived (mean only, no distribution)"},
+            raw={
+                "runner": self.id,
+                "llama_bench_stdout": stdout[:4000],
+                "llama_bench_stderr": stderr[:2000],
+                "ttft_ms": "derived",
+                "itl_mean_ms": "derived (=1000/tg_tps)",
+                "itl_percentiles": "not measured (llama-bench has no per-token distribution)",
+            },
         )

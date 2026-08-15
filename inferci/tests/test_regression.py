@@ -53,9 +53,21 @@ class TestRegression(unittest.TestCase):
         f = compare_runs(make(ttft=0.0), make(ttft=0.0))
         self.assertEqual(self._find(f, "ttft_ms").verdict, Verdict.NO_DATA)
 
+    def test_zero_baseline_is_no_data(self):
+        # baseline 0 (failed/unmeasured) + candidate real -> must not be NOISE
+        f = compare_runs(make(tg=0.0), make(tg=50.0))
+        self.assertEqual(self._find(f, "tg_tps").verdict, Verdict.NO_DATA)
+
     def test_any_regression(self):
         self.assertTrue(any_regression(compare_runs(make(tg=50), make(tg=40))))
         self.assertFalse(any_regression(compare_runs(make(tg=50), make(tg=52))))
+
+    def test_comparability(self):
+        from inferci.regression import comparability_issues
+        a, b = make(), make()
+        self.assertEqual(comparability_issues(a, b), [])
+        b.environment.accelerator.kind = "cuda"
+        self.assertTrue(any("accelerator" in i for i in comparability_issues(a, b)))
 
 
 if __name__ == "__main__":

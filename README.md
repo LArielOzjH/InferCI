@@ -88,10 +88,19 @@ research/     the deep-dive that motivated this project (10 directions + red-tea
 
 ## Status
 
-**v0.1 (CPU-first vertical).** Working: llama.cpp runner (CPU/Metal), schema,
-SQLite ledger, regression judge, cost model, CLI, tests, CI. Next: serving
-runners (vLLM/SGLang), long-context quality gate (quality-per-$), public
-dashboard.
+**v0.1 (CPU-first vertical, measured latency).** Working:
+
+- **runners** — `llama_cpp` (llama-bench, CPU/Metal), `llama_server` (measured
+  TTFT/ITL from a real HTTP stream), `openai_serving` (any OpenAI-compatible
+  `/v1/completions` endpoint)
+- **core** — schema, append-only SQLite ledger, regression judge (published
+  thresholds + within-tolerance semantics), cost model, CLI
+  (`run/list/diff/report/dashboard`), static HTML dashboard
+- **quality** — 46 tests (incl. two real end-to-end runs), GitHub Actions CI,
+  zero runtime dependencies
+
+Next: vLLM/SGLang serving runners, long-context quality gate (quality-per-$),
+hosted public dashboard.
 
 ## Contributing
 

@@ -47,22 +47,29 @@ class Store:
 
     def insert(self, run: RunResult) -> None:
         spec = run.spec
-        self.conn.execute(
-            """INSERT OR REPLACE INTO runs
-               (run_id, created_at, backend, model_id, quantization, spec_id,
-                tg_tps, pp_tps, ttft_ms, spec_json, env_json, metrics_json, cost_json, raw_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                run.run_id, run.created_at, spec.backend, spec.model_id,
-                spec.quantization, spec.canonical_id(),
-                run.metrics.tg_tps, run.metrics.pp_tps, run.metrics.ttft_ms,
-                json.dumps(asdict(run.spec), ensure_ascii=False),
-                json.dumps(asdict(run.environment), ensure_ascii=False),
-                json.dumps(asdict(run.metrics), ensure_ascii=False),
-                json.dumps(asdict(run.cost), ensure_ascii=False) if run.cost else None,
-                json.dumps(run.raw, ensure_ascii=False),
-            ),
-        )
+        try:
+            self.conn.execute(
+                """INSERT INTO runs
+                   (run_id, created_at, backend, model_id, quantization, spec_id,
+                    tg_tps, pp_tps, ttft_ms, spec_json, env_json, metrics_json, cost_json, raw_json)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    run.run_id, run.created_at, spec.backend, spec.model_id,
+                    spec.quantization, spec.canonical_id(),
+                    run.metrics.tg_tps, run.metrics.pp_tps, run.metrics.ttft_ms,
+                    json.dumps(asdict(run.spec), ensure_ascii=False),
+                    json.dumps(asdict(run.environment), ensure_ascii=False),
+                    json.dumps(asdict(run.metrics), ensure_ascii=False),
+                    json.dumps(asdict(run.cost), ensure_ascii=False) if run.cost else None,
+                    json.dumps(run.raw, ensure_ascii=False),
+                ),
+            )
+        except sqlite3.IntegrityError as e:
+            # Append-only contract: a duplicate id must never silently overwrite.
+            raise RuntimeError(
+                f"run_id {run.run_id!r} already exists in the ledger; "
+                "append-only — a new run must mint a new id"
+            ) from e
         self.conn.commit()
 
     def get(self, run_id: str) -> Optional[RunResult]:
@@ -73,7 +80,7 @@ class Store:
         d = dict(zip(cols, row))
         return self._row_to_result(d)
 
-    def list(self, limit: int = 50, backend: str | None = None,
+    def list(self, limit: int | None = 50, backend: str | None = None,
              model_id: str | None = None) -> list[RunResult]:
         q = "SELECT * FROM runs"
         conds, args = [], []
@@ -85,8 +92,10 @@ class Store:
             args.append(model_id)
         if conds:
             q += " WHERE " + " AND ".join(conds)
-        q += " ORDER BY created_at DESC LIMIT ?"
-        args.append(limit)
+        q += " ORDER BY created_at DESC"
+        if limit is not None:
+            q += " LIMIT ?"
+            args.append(limit)
         rows = self.conn.execute(q, args).fetchall()
         cols = [c[0] for c in self.conn.execute("SELECT * FROM runs LIMIT 0").description]
         return [self._row_to_result(dict(zip(cols, r))) for r in rows]

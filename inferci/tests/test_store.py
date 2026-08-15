@@ -48,6 +48,17 @@ class TestStore(unittest.TestCase):
     def test_get_missing(self):
         self.assertIsNone(self.store.get("does-not-exist"))
 
+    def test_duplicate_insert_raises(self):
+        r = self._run()
+        self.store.insert(r)
+        with self.assertRaises(RuntimeError):
+            self.store.insert(r)  # append-only: must not silently overwrite
+
+    def test_list_no_limit_returns_all(self):
+        for _ in range(3):
+            self.store.insert(self._run())
+        self.assertEqual(len(self.store.list(limit=None)), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
