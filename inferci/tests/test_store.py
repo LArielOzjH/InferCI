@@ -19,8 +19,9 @@ class TestStore(unittest.TestCase):
 
     def _run(self, tg=12.3, backend="x", model="m") -> RunResult:
         return RunResult(
-            spec=BenchmarkSpec(backend=backend, model_id=model, quantization="q",
-                               prompt_tokens=512, gen_tokens=128),
+            spec=BenchmarkSpec(
+                backend=backend, model_id=model, quantization="q", prompt_tokens=512, gen_tokens=128
+            ),
             metrics=Metrics(tg_tps=tg),
         )
 

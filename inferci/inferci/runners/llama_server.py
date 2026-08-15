@@ -7,6 +7,7 @@ afterwards. This is the *serving* counterpart to `llama_cpp.LlamaCppRunner`
 (which uses `llama-bench`): both hit the real artifact, but this one also
 yields measured TTFT / ITL from an actual HTTP stream.
 """
+
 from __future__ import annotations
 
 import glob
@@ -16,7 +17,6 @@ import socket
 import subprocess
 import tempfile
 import time
-from typing import Optional
 
 from ..schema import BenchmarkSpec, Environment, RunResult, capture_local_environment
 from .serving import OpenAIServingRunner, http_get_status
@@ -24,7 +24,7 @@ from .serving import OpenAIServingRunner, http_get_status
 _DEFAULT_HOST = "127.0.0.1"
 
 
-def _find_llama_server() -> Optional[str]:
+def _find_llama_server() -> str | None:
     """Locate the llama-server binary (env var -> PATH -> build trees)."""
     env = os.environ.get("INFERCI_LLAMA_SERVER")
     candidates = []
@@ -64,12 +64,12 @@ class LlamaServerRunner(OpenAIServingRunner):
 
     def __init__(
         self,
-        binary: Optional[str] = None,
-        model_file: Optional[str] = None,
+        binary: str | None = None,
+        model_file: str | None = None,
         *,
         host: str = _DEFAULT_HOST,
-        port: Optional[int] = None,
-        extra_args: Optional[list[str]] = None,
+        port: int | None = None,
+        extra_args: list[str] | None = None,
         timeout: float = 600.0,
     ):
         self.binary = binary or _find_llama_server()
@@ -77,11 +77,9 @@ class LlamaServerRunner(OpenAIServingRunner):
         self.host = host or _DEFAULT_HOST
         self.port = port or _free_port()
         self.extra_args = list(extra_args or [])
-        self._proc: Optional[subprocess.Popen] = None
-        self._log_dir: Optional[str] = None
-        super().__init__(
-            base_url=f"http://{self.host}:{self.port}", model="", timeout=timeout
-        )
+        self._proc: subprocess.Popen | None = None
+        self._log_dir: str | None = None
+        super().__init__(base_url=f"http://{self.host}:{self.port}", model="", timeout=timeout)
 
     # -- lifecycle ---------------------------------------------------------
     def _binary_or_raise(self) -> str:
@@ -96,13 +94,15 @@ class LlamaServerRunner(OpenAIServingRunner):
         env.backend_version = self._discover_version() or "unknown"
         return env
 
-    def _discover_version(self) -> Optional[str]:
+    def _discover_version(self) -> str | None:
         if not self.binary:
             return None
         try:
             p = subprocess.run(
                 [self.binary, "--version"],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
             first = (p.stdout + p.stderr).strip().splitlines()
             return first[0][:160] if first else None
@@ -117,12 +117,18 @@ class LlamaServerRunner(OpenAIServingRunner):
 
         cmd = [
             binary,
-            "--host", self.host,
-            "--port", str(self.port),
-            "-m", model_file,
-            "--alias", alias,
-            "-c", str(ctx_size),
-            "-np", str(parallel),
+            "--host",
+            self.host,
+            "--port",
+            str(self.port),
+            "-m",
+            model_file,
+            "--alias",
+            alias,
+            "-c",
+            str(ctx_size),
+            "-np",
+            str(parallel),
         ]
         if threads > 0:
             cmd += ["-t", str(threads)]
@@ -134,9 +140,7 @@ class LlamaServerRunner(OpenAIServingRunner):
         self._log_dir = tempfile.mkdtemp(prefix="inferci-llama-server-")
         log_path = os.path.join(self._log_dir, "server.log")
         log_fh = open(log_path, "wb")
-        self._proc = subprocess.Popen(
-            cmd, stdout=log_fh, stderr=subprocess.STDOUT
-        )
+        self._proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT)
         self._log_fh = log_fh
 
     def _read_log_tail(self, n: int = 2000) -> str:
@@ -144,7 +148,7 @@ class LlamaServerRunner(OpenAIServingRunner):
             return ""
         log_path = os.path.join(self._log_dir, "server.log")
         try:
-            with open(log_path, "r", errors="replace") as f:
+            with open(log_path, errors="replace") as f:
                 return f.read()[-n:]
         except OSError:
             return ""
@@ -191,7 +195,7 @@ class LlamaServerRunner(OpenAIServingRunner):
     def close(self) -> None:
         self._stop_server()
 
-    def __enter__(self) -> "LlamaServerRunner":
+    def __enter__(self) -> LlamaServerRunner:
         return self
 
     def __exit__(self, *exc) -> None:

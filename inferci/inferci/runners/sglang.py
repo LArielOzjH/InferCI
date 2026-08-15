@@ -15,6 +15,7 @@ Measurement is inherited from ``serving.OpenAIServingRunner``; the shared GPU
 process lifecycle lives in ``vllm._GPUCompletionsRunner`` so the two wrappers
 stay in lock-step.
 """
+
 from __future__ import annotations
 
 from .vllm import _GPUCompletionsRunner

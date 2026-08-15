@@ -1,4 +1,4 @@
-"""Tests for the vLLM / SGLang serving runners.
+"""Tests for the TRT-LLM / TGI serving runners.
 
 Unit tests (no GPU required) cover:
 
@@ -8,8 +8,8 @@ Unit tests (no GPU required) cover:
     the backend package / ``nvidia-smi`` are absent.
 
 The integration tests use a real ``llama-server`` (an arbitrary
-OpenAI-compatible ``/v1/completions`` endpoint) as a stand-in for a vLLM /
-SGLang server, and assert that the wrappers' *connect* mode produces measured
+OpenAI-compatible ``/v1/completions`` endpoint) as a stand-in for a TRT-LLM /
+TGI server, and assert that the wrappers' *connect* mode produces measured
 ``tg_tps > 0`` and ``ttft_ms > 0`` end-to-end.
 """
 
@@ -21,13 +21,12 @@ import subprocess
 import tempfile
 import time
 import unittest
-from types import SimpleNamespace
 from unittest import mock
 
 from inferci.runners.llama_server import _find_llama_server, _free_port
 from inferci.runners.serving import http_get_status
-from inferci.runners.sglang import SGLangRunner
-from inferci.runners.vllm import VLLMRunner, _parse_memory_gb
+from inferci.runners.tgi import TGIRunner
+from inferci.runners.trt_llm import TRTLLMRunner
 from inferci.schema import BenchmarkSpec, Environment
 
 
@@ -43,26 +42,16 @@ def _test_model() -> str:
     return ""
 
 
-class TestParseMemory(unittest.TestCase):
-    def test_mib_default(self):
-        self.assertAlmostEqual(_parse_memory_gb("24576 MiB"), 24.0)
-
-    def test_gib_passthrough(self):
-        self.assertAlmostEqual(_parse_memory_gb("80 GiB"), 80.0)
-
-    def test_bare_number(self):
-        self.assertAlmostEqual(_parse_memory_gb("49152"), 48.0)
-
-    def test_garbage(self):
-        self.assertEqual(_parse_memory_gb("n/a"), 0.0)
-        self.assertEqual(_parse_memory_gb(""), 0.0)
+# Pre-computed at import time so the integration class can be decorated with
+# `skipUnless` (evaluates False -> skipped, without a GPU or the stand-in).
+_HAS_STANDIN = bool(_find_llama_server() and _test_model())
 
 
 class TestBaseUrlResolution(unittest.TestCase):
     """base_url / model resolution priority for both runners."""
 
-    def test_constructor_wins(self):
-        r = VLLMRunner(base_url="http://host:8000/v1", model="ctor-model")
+    def test_trt_llm_constructor_wins(self):
+        r = TRTLLMRunner(base_url="http://host:8000/v1", model="ctor-model")
         spec = BenchmarkSpec(
             model_id="spec-id", extra={"base_url": "http://x:1", "model": "extra-model"}
         )
@@ -70,133 +59,125 @@ class TestBaseUrlResolution(unittest.TestCase):
         self.assertEqual(base, "http://host:8000/v1")
         self.assertEqual(model, "ctor-model")
 
-    def test_spec_extra_wins_over_env(self):
-        with mock.patch.dict(os.environ, {"INFERCI_VLLM_BASE_URL": "http://env:9"}):
-            r = VLLMRunner()
+    def test_tgi_constructor_wins(self):
+        r = TGIRunner(base_url="http://host:8000/v1", model="ctor-model")
+        spec = BenchmarkSpec(
+            model_id="spec-id", extra={"base_url": "http://x:1", "model": "extra-model"}
+        )
+        base, model = r._resolve_target(spec)
+        self.assertEqual(base, "http://host:8000/v1")
+        self.assertEqual(model, "ctor-model")
+
+    def test_trt_llm_spec_extra_wins_over_env(self):
+        with mock.patch.dict(os.environ, {"INFERCI_TRTLLM_BASE_URL": "http://env:9"}):
+            r = TRTLLMRunner()
             spec = BenchmarkSpec(model_id="m", extra={"base_url": "http://extra:1"})
             base, _ = r._resolve_target(spec)
             self.assertEqual(base, "http://extra:1")
 
-    def test_env_var_used_when_no_other(self):
-        with mock.patch.dict(os.environ, {"INFERCI_VLLM_BASE_URL": "http://env:9/v1"}):
-            r = VLLMRunner()
+    def test_trt_llm_env_var_used_when_no_other(self):
+        with mock.patch.dict(os.environ, {"INFERCI_TRTLLM_BASE_URL": "http://env:9/v1"}):
+            r = TRTLLMRunner()
             base, _ = r._resolve_target(BenchmarkSpec(model_id="m"))
             self.assertEqual(base, "http://env:9/v1")
 
-    def test_sglang_env_var(self):
-        with mock.patch.dict(os.environ, {"INFERCI_SGLANG_BASE_URL": "http://sglang:1/v1"}):
-            r = SGLangRunner()
+    def test_tgi_env_var_used_when_no_other(self):
+        with mock.patch.dict(os.environ, {"INFERCI_TGI_BASE_URL": "http://tgi:1/v1"}):
+            r = TGIRunner()
             base, _ = r._resolve_target(BenchmarkSpec(model_id="m"))
-            self.assertEqual(base, "http://sglang:1/v1")
+            self.assertEqual(base, "http://tgi:1/v1")
 
     def test_model_priority_constructor_then_extra_then_model_id(self):
-        r = VLLMRunner(base_url="http://h:1", model="ctor")
-        spec = BenchmarkSpec(model_id="spec-id", extra={"model": "extra-model"})
-        _, model = r._resolve_target(spec)
-        self.assertEqual(model, "ctor")
+        for cls in (TRTLLMRunner, TGIRunner):
+            r = cls(base_url="http://h:1", model="ctor")
+            _, model = r._resolve_target(
+                BenchmarkSpec(model_id="spec-id", extra={"model": "extra-model"})
+            )
+            self.assertEqual(model, "ctor")
 
-        r2 = VLLMRunner(base_url="http://h:1")
-        _, model = r2._resolve_target(
-            BenchmarkSpec(model_id="spec-id", extra={"model": "extra-model"})
-        )
-        self.assertEqual(model, "extra-model")
+            r2 = cls(base_url="http://h:1")
+            _, model = r2._resolve_target(
+                BenchmarkSpec(model_id="spec-id", extra={"model": "extra-model"})
+            )
+            self.assertEqual(model, "extra-model")
 
-        _, model = r2._resolve_target(BenchmarkSpec(model_id="spec-id"))
-        self.assertEqual(model, "spec-id")
+            _, model = r2._resolve_target(BenchmarkSpec(model_id="spec-id"))
+            self.assertEqual(model, "spec-id")
 
     def test_missing_base_url_raises(self):
-        with mock.patch.dict(os.environ, {"INFERCI_VLLM_BASE_URL": ""}):
-            r = VLLMRunner()
-            with self.assertRaises(ValueError):
-                r._resolve_target(BenchmarkSpec(model_id="m"))
+        for cls, envvar in (
+            (TRTLLMRunner, "INFERCI_TRTLLM_BASE_URL"),
+            (TGIRunner, "INFERCI_TGI_BASE_URL"),
+        ):
+            with mock.patch.dict(os.environ, {envvar: ""}):
+                r = cls()
+                with self.assertRaises(ValueError):
+                    r._resolve_target(BenchmarkSpec(model_id="m"))
 
     def test_missing_model_raises(self):
-        r = VLLMRunner(base_url="http://h:1")
-        with self.assertRaises(ValueError):
-            r._resolve_target(BenchmarkSpec())
+        for cls in (TRTLLMRunner, TGIRunner):
+            r = cls(base_url="http://h:1")
+            with self.assertRaises(ValueError):
+                r._resolve_target(BenchmarkSpec())
 
 
 class TestCaptureEnvironment(unittest.TestCase):
     """capture_environment degrades to 'unknown' and never raises."""
 
-    def test_vllm_unknown_when_tools_missing(self):
-        r = VLLMRunner()
+    def test_trt_llm_unknown_when_tools_missing(self):
+        r = TRTLLMRunner()
         with (
             mock.patch.object(r, "_discover_version", return_value=None),
             mock.patch.object(r, "_discover_gpu", return_value=None),
         ):
             env = r.capture_environment()
         self.assertIsInstance(env, Environment)
-        self.assertEqual(env.backend, "vllm")
+        self.assertEqual(env.backend, "trt_llm")
         self.assertEqual(env.backend_version, "unknown")
-        self.assertEqual(env.lib_versions["vllm"], "unknown")
+        self.assertEqual(env.lib_versions["tensorrt_llm"], "unknown")
         self.assertEqual(env.accelerator.kind, "cpu")
 
-    def test_sglang_unknown_when_tools_missing(self):
-        r = SGLangRunner()
+    def test_tgi_unknown_when_tools_missing(self):
+        r = TGIRunner()
         with (
             mock.patch.object(r, "_discover_version", return_value=None),
             mock.patch.object(r, "_discover_gpu", return_value=None),
         ):
             env = r.capture_environment()
-        self.assertEqual(env.backend, "sglang")
+        self.assertEqual(env.backend, "tgi")
         self.assertEqual(env.backend_version, "unknown")
+        self.assertEqual(env.lib_versions["text_generation_server"], "unknown")
         self.assertEqual(env.accelerator.kind, "cpu")
 
     def test_real_capture_never_raises(self):
-        # No mocking: on a machine with neither vllm/sglang nor nvidia-smi this
-        # must still return a well-formed Environment (version = "unknown").
-        for runner in (VLLMRunner(), SGLangRunner()):
+        # No mocking: on a machine with neither tensorrt_llm / TGI nor
+        # nvidia-smi this must still return a well-formed Environment
+        # (version = "unknown") without raising.
+        for runner in (TRTLLMRunner(), TGIRunner()):
             env = runner.capture_environment()
             self.assertIsInstance(env, Environment)
             self.assertIsInstance(env.backend_version, str)
             self.assertEqual(env.backend, runner.id)
 
-    def test_discover_gpu_parses_nvidia_smi(self):
-        r = VLLMRunner()
-
-        def fake_run(args, **kwargs):
-            if "--query-gpu=name,memory.total" in args:
-                return SimpleNamespace(returncode=0, stdout="Tesla V100, 24576 MiB\n", stderr="")
-            return SimpleNamespace(returncode=0, stdout="550.54\n", stderr="")
-
-        with (
-            mock.patch("inferci.runners.vllm.shutil.which", return_value="/usr/bin/nvidia-smi"),
-            mock.patch("inferci.runners.vllm.subprocess.run", side_effect=fake_run),
-        ):
-            acc = r._discover_gpu()
-        self.assertIsNotNone(acc)
-        self.assertEqual(acc.kind, "cuda")
-        self.assertEqual(acc.name, "Tesla V100")
-        self.assertAlmostEqual(acc.memory_gb, 24.0)
-        self.assertEqual(acc.driver, "550.54")
-
-    def test_discover_gpu_none_without_nvidia_smi(self):
-        r = VLLMRunner()
-        with mock.patch("inferci.runners.vllm.shutil.which", return_value=None):
-            self.assertIsNone(r._discover_gpu())
-
 
 class TestLaunchPreflight(unittest.TestCase):
     """launch() fails clearly (with guidance) when the backend is missing."""
 
-    def test_vllm_not_installed_raises_file_not_found(self):
-        r = VLLMRunner()
+    def test_trt_llm_not_installed_raises_file_not_found(self):
+        r = TRTLLMRunner()
         with mock.patch("inferci.runners.vllm.subprocess.run") as run:
             run.return_value.returncode = 1
-            run.return_value.stderr = "ModuleNotFoundError: No module named 'vllm'"
+            run.return_value.stderr = "ModuleNotFoundError: No module named 'tensorrt_llm'"
             with self.assertRaises(FileNotFoundError) as ctx:
                 r.launch("unused-model", 12345)
-            self.assertIn("pip install vllm", str(ctx.exception))
+            self.assertIn("pip install tensorrt_llm", str(ctx.exception))
 
-    def test_sglang_not_installed_raises_file_not_found(self):
-        r = SGLangRunner()
-        with mock.patch("inferci.runners.vllm.subprocess.run") as run:
-            run.return_value.returncode = 1
-            run.return_value.stderr = "ModuleNotFoundError: No module named 'sglang'"
+    def test_tgi_launcher_missing_raises_file_not_found(self):
+        r = TGIRunner()
+        with mock.patch("inferci.runners.tgi.shutil.which", return_value=None):
             with self.assertRaises(FileNotFoundError) as ctx:
                 r.launch("unused-model", 12345)
-            self.assertIn("pip install sglang", str(ctx.exception))
+            self.assertIn("text-generation-launcher", str(ctx.exception))
 
 
 def _standin_server():
@@ -210,8 +191,8 @@ def _standin_server():
     if not binary or not model or not os.path.exists(model):
         return None
     port = _free_port()
-    alias = "inferci-gpu-standin"
-    log_dir = tempfile.mkdtemp(prefix="inferci-gpu-test-")
+    alias = "inferci-trt-tgi-standin"
+    log_dir = tempfile.mkdtemp(prefix="inferci-trt-tgi-test-")
     log_path = os.path.join(log_dir, "llama-server.log")
     log_fh = open(log_path, "wb")
     proc = subprocess.Popen(
@@ -263,8 +244,9 @@ def _wait_standin_health(
     raise TimeoutError(f"llama-server /health not ready in {timeout}s")
 
 
-class TestGPUCompletionsAgainstLlamaServer(unittest.TestCase):
-    """End-to-end: llama-server stands in for a vLLM/SGLang OpenAI endpoint."""
+@unittest.skipUnless(_HAS_STANDIN, "llama-server binary or test model not available")
+class TestTRTTGICompletionsAgainstLlamaServer(unittest.TestCase):
+    """End-to-end: llama-server stands in for a TRT-LLM/TGI OpenAI endpoint."""
 
     @classmethod
     def setUpClass(cls):
@@ -284,10 +266,6 @@ class TestGPUCompletionsAgainstLlamaServer(unittest.TestCase):
         if log_fh is not None:
             log_fh.close()
         shutil.rmtree(log_dir, ignore_errors=True)
-
-    def _skip_if_unavailable(self):
-        if self._standin is None:
-            self.skipTest("llama-server binary or test model not available")
 
     def _run_connect(self, runner_cls):
         _proc, base_url, alias, _log_fh, _log_dir = self._standin
@@ -310,15 +288,13 @@ class TestGPUCompletionsAgainstLlamaServer(unittest.TestCase):
         self.assertGreater(res.metrics.generated_tokens, 0)
         return res
 
-    def test_vllm_connect_mode(self):
-        self._skip_if_unavailable()
-        res = self._run_connect(VLLMRunner)
-        self.assertEqual(res.raw["runner"], "vllm")
+    def test_trt_llm_connect_mode(self):
+        res = self._run_connect(TRTLLMRunner)
+        self.assertEqual(res.raw["runner"], "trt_llm")
 
-    def test_sglang_connect_mode(self):
-        self._skip_if_unavailable()
-        res = self._run_connect(SGLangRunner)
-        self.assertEqual(res.raw["runner"], "sglang")
+    def test_tgi_connect_mode(self):
+        res = self._run_connect(TGIRunner)
+        self.assertEqual(res.raw["runner"], "tgi")
 
 
 if __name__ == "__main__":

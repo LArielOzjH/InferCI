@@ -1,11 +1,11 @@
 import os
 import unittest
 
-from inferci.runners.llama_server import LlamaServerRunner, _find_llama_server
+from inferci.runners.llama_server import LlamaServerRunner
 from inferci.runners.serving import (
     OpenAIServingRunner,
-    _StreamSample,
     _make_prompt,
+    _StreamSample,
     compute_itl,
     percentile,
 )
@@ -88,15 +88,17 @@ def _test_model() -> str:
 
 class TestConcurrentAggregation(unittest.TestCase):
     def test_aggregate_math(self):
-        a = _StreamSample(wall_start=0.0, wall_end=1.0, generated_tokens=10,
-                          prompt_tokens=100, ttft_ms=10.0)
-        b = _StreamSample(wall_start=0.0, wall_end=1.0, generated_tokens=20,
-                          prompt_tokens=100, ttft_ms=20.0)
+        a = _StreamSample(
+            wall_start=0.0, wall_end=1.0, generated_tokens=10, prompt_tokens=100, ttft_ms=10.0
+        )
+        b = _StreamSample(
+            wall_start=0.0, wall_end=1.0, generated_tokens=20, prompt_tokens=100, ttft_ms=20.0
+        )
         r = OpenAIServingRunner()
         pp, tg, ttft, itl = r._aggregate_concurrent([a, b])
-        self.assertAlmostEqual(tg, 30.0)       # 30 tokens / 1s span
-        self.assertAlmostEqual(ttft, 15.0)     # mean(10, 20)
-        self.assertAlmostEqual(pp, 7500.0)     # mean(10000, 5000)
+        self.assertAlmostEqual(tg, 30.0)  # 30 tokens / 1s span
+        self.assertAlmostEqual(ttft, 15.0)  # mean(10, 20)
+        self.assertAlmostEqual(pp, 7500.0)  # mean(10000, 5000)
         self.assertEqual(itl, [])
 
     def test_aggregate_empty_raises(self):

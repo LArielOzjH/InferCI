@@ -15,12 +15,14 @@ Usage:
 
 Constraint: standard library only.
 """
+
 from __future__ import annotations
 
 import argparse
 import html
 import sys
 from collections import defaultdict
+from itertools import pairwise
 
 from .regression import Verdict, compare_runs
 from .schema import RunResult
@@ -61,9 +63,7 @@ def _cost_cell(run: RunResult) -> str:
     if cost is None:
         return "—"
     has_price = (
-        cost.instance_hourly > 0
-        or cost.price_per_input_1m > 0
-        or cost.price_per_output_1m > 0
+        cost.instance_hourly > 0 or cost.price_per_input_1m > 0 or cost.price_per_output_1m > 0
     )
     if not has_price:
         return "local"
@@ -94,10 +94,10 @@ def _detect_regressions(
     (later) run is the one flagged when it regresses against its predecessor.
     """
     flagged: dict[str, list] = {}
-    for spec_id, spec_runs in by_spec.items():
+    for _spec_id, spec_runs in by_spec.items():
         if len(spec_runs) < 2:
             continue
-        for prev, cand in zip(spec_runs, spec_runs[1:]):
+        for prev, cand in pairwise(spec_runs):
             findings = compare_runs(prev, cand)
             regressions = [f for f in findings if f.verdict == Verdict.REGRESSION]
             if regressions:
@@ -122,9 +122,7 @@ def _summary_html(runs: list[RunResult]) -> str:
     )
 
 
-def _table_html(
-    runs: list[RunResult], regressions: dict[str, list]
-) -> str:
+def _table_html(runs: list[RunResult], regressions: dict[str, list]) -> str:
     rows = []
     for run in sorted(runs, key=_created_sort_key):
         flagged = run.run_id in regressions
@@ -132,15 +130,12 @@ def _table_html(
         badge = ""
         title = ""
         if flagged:
-            notes = " &#183; ".join(
-                _esc(f.metric + " " + f.note) for f in regressions[run.run_id]
+            badge = (
+                '<span class="badge" title="'
+                + _esc(" ; ".join(f.fmt() for f in regressions[run.run_id]))
+                + '">REGRESSION</span>'
             )
-            badge = '<span class="badge" title="' + _esc(
-                " ; ".join(f.fmt() for f in regressions[run.run_id])
-            ) + '">REGRESSION</span>'
-            title = ' title="' + _esc(
-                " ; ".join(f.fmt() for f in regressions[run.run_id])
-            ) + '"'
+            title = ' title="' + _esc(" ; ".join(f.fmt() for f in regressions[run.run_id])) + '"'
         rows.append(
             "<tr" + cls + ">"
             f"<td><code>{_esc(run.run_id)}</code> {badge}</td>"
@@ -193,7 +188,7 @@ def _trend_html(by_spec: dict[str, list[RunResult]]) -> str:
     return (
         "<table>"
         "<thead><tr>"
-        "<th>spec</th><th class=\"num\">runs</th>"
+        '<th>spec</th><th class="num">runs</th>'
         '<th class="num">first tg_tps</th><th class="num">last tg_tps</th>'
         '<th class="num">delta%</th>'
         "</tr></thead>"
@@ -239,7 +234,7 @@ def render_html(runs: list[RunResult]) -> str:
     """Render ``runs`` into a complete, self-contained HTML document."""
     if not runs:
         return (
-            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             "<title>InferCI Dashboard</title><style>" + _STYLE + "</style></head>"
             "<body><h1>InferCI Dashboard</h1><p>no runs yet</p></body></html>"
         )
@@ -265,10 +260,7 @@ def render_html(runs: list[RunResult]) -> str:
     ]
 
     if n_regressions:
-        parts.append(
-            '<p><span class="badge">' + str(n_regressions)
-            + " regression(s)</span></p>"
-        )
+        parts.append('<p><span class="badge">' + str(n_regressions) + " regression(s)</span></p>")
 
     parts.append('<h2 class="section-title">Runs</h2>')
     parts.append(_table_html(runs, regressions))
@@ -299,8 +291,7 @@ def main(argv=None) -> int:
         fh.write(html_text)
 
     print(
-        f"[inferci.dashboard] wrote {len(runs)} run(s) to {args.out} "
-        f"({len(html_text)} bytes)",
+        f"[inferci.dashboard] wrote {len(runs)} run(s) to {args.out} ({len(html_text)} bytes)",
         file=sys.stderr,
     )
     return 0

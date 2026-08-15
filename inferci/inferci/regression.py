@@ -4,6 +4,7 @@ Neutral, deterministic, and documented. It never "picks a winner" — it reports
 per-metric relative change against published thresholds, and distinguishes
 real regressions from noise.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,16 +26,18 @@ class RegressionFinding:
     metric: str
     baseline: float
     candidate: float
-    relative: float       # (candidate - baseline) / baseline
-    threshold: float      # the boundary that would trigger regression
+    relative: float  # (candidate - baseline) / baseline
+    threshold: float  # the boundary that would trigger regression
     verdict: Verdict
     note: str = ""
 
     def fmt(self) -> str:
         arrow = "▲" if self.relative >= 0 else "▼"
-        return (f"{self.metric:<12} base={self.baseline:>10.3f} "
-                f"cand={self.candidate:>10.3f} {arrow}{abs(self.relative)*100:>6.2f}% "
-                f"[{self.verdict.value}] {self.note}")
+        return (
+            f"{self.metric:<12} base={self.baseline:>10.3f} "
+            f"cand={self.candidate:>10.3f} {arrow}{abs(self.relative) * 100:>6.2f}% "
+            f"[{self.verdict.value}] {self.note}"
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -63,8 +66,9 @@ def _rel(base: float, cand: float) -> float:
     return (cand - base) / base
 
 
-def compare_runs(base: RunResult, cand: RunResult,
-                 thresholds: dict | None = None) -> list[RegressionFinding]:
+def compare_runs(
+    base: RunResult, cand: RunResult, thresholds: dict | None = None
+) -> list[RegressionFinding]:
     t = dict(THRESHOLDS)
     if thresholds:
         t.update(thresholds)
@@ -80,8 +84,14 @@ def compare_runs(base: RunResult, cand: RunResult,
             c = getattr(m2, metric)
 
         if b == 0.0 or c == 0.0:
-            note = "not measured" if b == 0.0 and c == 0.0 else "zero/missing baseline (cannot compare)"
-            findings.append(RegressionFinding(metric, b, c, 0.0, t.get(key, 0.0), Verdict.NO_DATA, note))
+            note = (
+                "not measured"
+                if b == 0.0 and c == 0.0
+                else "zero/missing baseline (cannot compare)"
+            )
+            findings.append(
+                RegressionFinding(metric, b, c, 0.0, t.get(key, 0.0), Verdict.NO_DATA, note)
+            )
             continue
 
         rel = _rel(b, c)
@@ -91,26 +101,26 @@ def compare_runs(base: RunResult, cand: RunResult,
             # regression = drop past the (negative) threshold
             if rel <= thr:
                 verdict = Verdict.REGRESSION
-                note = f"dropped {abs(rel)*100:.2f}% (threshold {thr*100:.1f}%)"
+                note = f"dropped {abs(rel) * 100:.2f}% (threshold {thr * 100:.1f}%)"
             elif rel >= MIN_MEANINGFUL_FRACTION:
                 verdict = Verdict.IMPROVEMENT
-                note = f"improved {rel*100:.2f}%"
+                note = f"improved {rel * 100:.2f}%"
             else:
                 # small change or small degradation, all within tolerance
                 verdict = Verdict.NOISE
-                note = f"within tolerance: {rel*100:+.2f}% (threshold {thr*100:.1f}%)"
+                note = f"within tolerance: {rel * 100:+.2f}% (threshold {thr * 100:.1f}%)"
         else:
             # regression = rise past the (positive) threshold
             if rel >= thr:
                 verdict = Verdict.REGRESSION
-                note = f"increased {rel*100:.2f}% (threshold {thr*100:.1f}%)"
+                note = f"increased {rel * 100:.2f}% (threshold {thr * 100:.1f}%)"
             elif rel <= -MIN_MEANINGFUL_FRACTION:
                 verdict = Verdict.IMPROVEMENT
-                note = f"decreased {abs(rel)*100:.2f}%"
+                note = f"decreased {abs(rel) * 100:.2f}%"
             else:
                 # small change or small degradation, all within tolerance
                 verdict = Verdict.NOISE
-                note = f"within tolerance: {rel*100:+.2f}% (threshold {thr*100:.1f}%)"
+                note = f"within tolerance: {rel * 100:+.2f}% (threshold {thr * 100:.1f}%)"
 
         findings.append(RegressionFinding(metric, b, c, rel, thr, verdict, note))
 
@@ -135,8 +145,12 @@ def comparability_issues(base: RunResult, cand: RunResult) -> list[str]:
             f"{cand.environment.accelerator.kind!r}"
         )
     s1, s2 = base.spec.sampling, cand.spec.sampling
-    if (s1.temperature, s1.top_p, s1.top_k, s1.seed) != \
-            (s2.temperature, s2.top_p, s2.top_k, s2.seed):
+    if (s1.temperature, s1.top_p, s1.top_k, s1.seed) != (
+        s2.temperature,
+        s2.top_p,
+        s2.top_k,
+        s2.seed,
+    ):
         issues.append("sampling differs (temperature/top_p/top_k/seed)")
     d1 = base.spec.extra.get("device")
     d2 = cand.spec.extra.get("device")

@@ -4,6 +4,7 @@ The schema is the *moat*: a single, neutral, machine-readable description of
 "what was run, where, and what happened". Everything (store, regression, cost,
 dashboard, BYO-runner protocol) speaks this schema.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -11,7 +12,6 @@ import json
 import platform
 import uuid
 from dataclasses import asdict, dataclass, field, fields
-from typing import Any, Optional
 
 SPEC_VERSION = "0.1.0"
 
@@ -35,22 +35,24 @@ def _pick(d: dict, cls) -> dict:
 @dataclass
 class Accelerator:
     """The compute device the workload ran on."""
-    kind: str = "cpu"          # cpu | cuda | metal | rocm | npu | ...
-    name: str = ""             # e.g. "Apple M1 Pro", "NVIDIA H100"
+
+    kind: str = "cpu"  # cpu | cuda | metal | rocm | npu | ...
+    name: str = ""  # e.g. "Apple M1 Pro", "NVIDIA H100"
     memory_gb: float = 0.0
-    driver: str = ""           # e.g. CUDA 12.4, Metal 3
+    driver: str = ""  # e.g. CUDA 12.4, Metal 3
 
 
 @dataclass
 class Environment:
     """Where a run happened. Must be captured automatically, never typed by hand."""
+
     host: str = ""
     os: str = ""
     arch: str = ""
     cpu: str = ""
     ram_gb: float = 0.0
     accelerator: Accelerator = field(default_factory=Accelerator)
-    backend: str = ""          # runner id: llama_cpp | vllm | sglang | ...
+    backend: str = ""  # runner id: llama_cpp | vllm | sglang | ...
     backend_version: str = ""  # git commit / tag / version string
     lib_versions: dict = field(default_factory=dict)
     captured_at: str = field(default_factory=now_utc)
@@ -68,28 +70,35 @@ class Sampling:
 class BenchmarkSpec:
     """The *what* of a run. Two runs are comparable iff their specs match
     (same id), so reproducibility lives here."""
+
     spec_version: str = SPEC_VERSION
-    id: str = ""               # canonical spec key, e.g. "llama_cpp.qwen25-0.5b.Q4_K_M.cpu.pp512.tg128"
-    model_id: str = ""         # canonical model name, not a path
-    model_file: str = ""       # local path or HF ref
-    backend: str = ""          # runner id
-    quantization: str = ""     # Q4_K_M | FP16 | FP8 | AWQ-4bit | ...
-    prompt_tokens: int = 512   # prefill length
-    gen_tokens: int = 128      # decode length
+    id: str = ""  # canonical spec key, e.g. "llama_cpp.qwen25-0.5b.Q4_K_M.cpu.pp512.tg128"
+    model_id: str = ""  # canonical model name, not a path
+    model_file: str = ""  # local path or HF ref
+    backend: str = ""  # runner id
+    quantization: str = ""  # Q4_K_M | FP16 | FP8 | AWQ-4bit | ...
+    prompt_tokens: int = 512  # prefill length
+    gen_tokens: int = 128  # decode length
     repeats: int = 3
     warmup_repeats: int = 1
-    batch: int = 1             # serving concurrency (1 = single stream)
+    batch: int = 1  # serving concurrency (1 = single stream)
     sampling: Sampling = field(default_factory=Sampling)
-    prompt_set: str = "synthetic"   # which prompt/data set
+    prompt_set: str = "synthetic"  # which prompt/data set
     extra: dict = field(default_factory=dict)
 
     def canonical_id(self) -> str:
         if self.id:
             return self.id
-        return ".".join([
-            self.backend, self.model_id, self.quantization,
-            f"pp{self.prompt_tokens}", f"tg{self.gen_tokens}", f"b{self.batch}",
-        ])
+        return ".".join(
+            [
+                self.backend,
+                self.model_id,
+                self.quantization,
+                f"pp{self.prompt_tokens}",
+                f"tg{self.gen_tokens}",
+                f"b{self.batch}",
+            ]
+        )
 
 
 @dataclass
@@ -103,12 +112,12 @@ class PerTokenLatency:
 @dataclass
 class Metrics:
     # Throughput (higher = better)
-    pp_tps: float = 0.0       # prompt-processing tokens/sec (prefill)
-    tg_tps: float = 0.0       # token-generation tokens/sec (decode)
+    pp_tps: float = 0.0  # prompt-processing tokens/sec (prefill)
+    tg_tps: float = 0.0  # token-generation tokens/sec (decode)
     pp_tps_std: float = 0.0
     tg_tps_std: float = 0.0
     # Latency (lower = better) — filled by serving-style runners
-    ttft_ms: float = 0.0      # time-to-first-token
+    ttft_ms: float = 0.0  # time-to-first-token
     itl: PerTokenLatency = field(default_factory=PerTokenLatency)
     # Accounting
     total_seconds: float = 0.0
@@ -122,12 +131,13 @@ class Metrics:
 class CostResult:
     """$/token economics. For local CPU this may be 'local' with zero price;
     for cloud runners it is derived from instance price / measured throughput."""
+
     currency: str = "USD"
     price_per_input_1m: float = 0.0
     price_per_output_1m: float = 0.0
     instance_hourly: float = 0.0
     instance_type: str = ""
-    source: str = ""          # where the price came from (catalog/aws/...)
+    source: str = ""  # where the price came from (catalog/aws/...)
 
 
 @dataclass
@@ -136,9 +146,11 @@ class RunResult:
     spec: BenchmarkSpec = field(default_factory=BenchmarkSpec)
     environment: Environment = field(default_factory=Environment)
     metrics: Metrics = field(default_factory=Metrics)
-    cost: Optional[CostResult] = None
+    cost: CostResult | None = None
     created_at: str = field(default_factory=now_utc)
-    raw: dict = field(default_factory=dict)   # runner-specific raw output (never parsed for judgments)
+    raw: dict = field(
+        default_factory=dict
+    )  # runner-specific raw output (never parsed for judgments)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -147,7 +159,7 @@ class RunResult:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "RunResult":
+    def from_dict(cls, d: dict) -> RunResult:
         # Tolerant: unknown/extra keys (from future or foreign BYO runners) are
         # dropped instead of crashing the whole read. Nested dataclasses are
         # rebuilt explicitly so their own fields are also filtered.
@@ -163,7 +175,10 @@ class RunResult:
         cost = CostResult(**_pick(d.get("cost") or {}, CostResult)) if d.get("cost") else None
         return cls(
             run_id=d.get("run_id") or new_run_id(),
-            spec=spec, environment=env, metrics=metrics, cost=cost,
+            spec=spec,
+            environment=env,
+            metrics=metrics,
+            cost=cost,
             created_at=d.get("created_at") or now_utc(),
             raw=d.get("raw") or {},
         )
@@ -176,9 +191,12 @@ def capture_local_environment(backend: str = "", backend_version: str = "") -> E
     # Apple Silicon name via sysctl when available
     try:
         import subprocess
+
         name = subprocess.run(
             ["sysctl", "-n", "machdep.cpu.brand_string"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         ).stdout.strip()
         if name:
             cpu = name

@@ -8,8 +8,9 @@ def make(tg=50.0, pp=100.0, ttft=100.0, p95=20.0) -> RunResult:
     m = Metrics(tg_tps=tg, pp_tps=pp, ttft_ms=ttft)
     m.itl.p95_ms = p95
     return RunResult(
-        spec=BenchmarkSpec(backend="x", model_id="m", quantization="q",
-                           prompt_tokens=512, gen_tokens=128),
+        spec=BenchmarkSpec(
+            backend="x", model_id="m", quantization="q", prompt_tokens=512, gen_tokens=128
+        ),
         environment=Environment(),
         metrics=m,
     )
@@ -64,6 +65,7 @@ class TestRegression(unittest.TestCase):
 
     def test_comparability(self):
         from inferci.regression import comparability_issues
+
         a, b = make(), make()
         self.assertEqual(comparability_issues(a, b), [])
         b.environment.accelerator.kind = "cuda"

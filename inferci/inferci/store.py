@@ -4,13 +4,13 @@ Storage is append-only history: every RunResult is a row. The neutral value is
 the accumulated, reproducible history ("the ledger"), which later feeds the
 dashboard and regression trend-lines.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import sqlite3
 from dataclasses import asdict
-from typing import Optional
 
 from .schema import RunResult
 
@@ -54,9 +54,15 @@ class Store:
                     tg_tps, pp_tps, ttft_ms, spec_json, env_json, metrics_json, cost_json, raw_json)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    run.run_id, run.created_at, spec.backend, spec.model_id,
-                    spec.quantization, spec.canonical_id(),
-                    run.metrics.tg_tps, run.metrics.pp_tps, run.metrics.ttft_ms,
+                    run.run_id,
+                    run.created_at,
+                    spec.backend,
+                    spec.model_id,
+                    spec.quantization,
+                    spec.canonical_id(),
+                    run.metrics.tg_tps,
+                    run.metrics.pp_tps,
+                    run.metrics.ttft_ms,
                     json.dumps(asdict(run.spec), ensure_ascii=False),
                     json.dumps(asdict(run.environment), ensure_ascii=False),
                     json.dumps(asdict(run.metrics), ensure_ascii=False),
@@ -72,15 +78,15 @@ class Store:
             ) from e
         self.conn.commit()
 
-    def get(self, run_id: str) -> Optional[RunResult]:
+    def get(self, run_id: str) -> RunResult | None:
         row = self.conn.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
         if not row:
             return None
         cols = [c[0] for c in self.conn.execute("SELECT * FROM runs LIMIT 0").description]
-        d = dict(zip(cols, row))
+        d = dict(zip(cols, row, strict=True))
         return self._row_to_result(d)
 
-    def resolve(self, run_id_or_prefix: str) -> Optional[RunResult]:
+    def resolve(self, run_id_or_prefix: str) -> RunResult | None:
         """Exact match first, then unique-prefix match (short-id UX)."""
         run = self.get(run_id_or_prefix)
         if run:
@@ -93,8 +99,9 @@ class Store:
             return self.get(rows[0][0])
         return None
 
-    def list(self, limit: int | None = 50, backend: str | None = None,
-             model_id: str | None = None) -> list[RunResult]:
+    def list(
+        self, limit: int | None = 50, backend: str | None = None, model_id: str | None = None
+    ) -> list[RunResult]:
         q = "SELECT * FROM runs"
         conds, args = [], []
         if backend:
@@ -111,9 +118,9 @@ class Store:
             args.append(limit)
         rows = self.conn.execute(q, args).fetchall()
         cols = [c[0] for c in self.conn.execute("SELECT * FROM runs LIMIT 0").description]
-        return [self._row_to_result(dict(zip(cols, r))) for r in rows]
+        return [self._row_to_result(dict(zip(cols, r, strict=True))) for r in rows]
 
-    def latest_baseline_for(self, spec_id: str) -> Optional[RunResult]:
+    def latest_baseline_for(self, spec_id: str) -> RunResult | None:
         row = self.conn.execute(
             "SELECT * FROM runs WHERE spec_id=? ORDER BY created_at ASC LIMIT 1",
             (spec_id,),
@@ -121,7 +128,7 @@ class Store:
         if not row:
             return None
         cols = [c[0] for c in self.conn.execute("SELECT * FROM runs LIMIT 0").description]
-        return self._row_to_result(dict(zip(cols, row)))
+        return self._row_to_result(dict(zip(cols, row, strict=True)))
 
     @staticmethod
     def _row_to_result(d: dict) -> RunResult:

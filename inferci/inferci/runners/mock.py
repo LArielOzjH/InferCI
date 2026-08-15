@@ -4,6 +4,7 @@ Exposes the whole InferCI pipeline (run -> ledger -> diff -> report ->
 dashboard) on any machine, and lets you simulate a regression by setting
 ``spec.extra["slowdown"]`` (e.g. 0.9 = 10% slower) to exercise the judge.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -32,8 +33,8 @@ class MockRunner(Runner):
         # Deterministic pseudo-numbers seeded by the spec key, so the same spec
         # always yields the same numbers (ideal for testing the diff gate).
         seed = hashlib.sha256(spec.canonical_id().encode("utf-8")).digest()
-        base_pp = 500.0 + (seed[0] / 255.0) * 2000.0      # 500 .. 2500 tok/s
-        base_tg = 100.0 + (seed[1] / 255.0) * 300.0       # 100 .. 400 tok/s
+        base_pp = 500.0 + (seed[0] / 255.0) * 2000.0  # 500 .. 2500 tok/s
+        base_tg = 100.0 + (seed[1] / 255.0) * 300.0  # 100 .. 400 tok/s
         slowdown = float(spec.extra.get("slowdown", 1.0))
         pp = base_pp * slowdown
         tg = base_tg * slowdown
@@ -54,7 +55,7 @@ class MockRunner(Runner):
             raw={
                 "runner": self.id,
                 "note": "synthetic deterministic numbers; for harness smoke tests "
-                        "and regression-judge demos only",
+                "and regression-judge demos only",
                 "slowdown": slowdown,
             },
         )

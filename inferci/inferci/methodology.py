@@ -4,6 +4,7 @@ The neutrality claim rests on a fixed, published, reproducible methodology.
 Every number that ships through InferCI MUST come from this file (or an
 explicitly versioned override), otherwise comparisons are meaningless.
 """
+
 from __future__ import annotations
 
 # ---- Why these choices matter -------------------------------------------------
@@ -35,12 +36,24 @@ THRESHOLDS = {
 MIN_MEANINGFUL_FRACTION = 0.02
 
 
-def canonical_spec_id(backend: str, model_id: str, quantization: str,
-                      prompt_tokens: int, gen_tokens: int, batch: int = 1) -> str:
-    return ".".join([
-        backend, model_id, quantization,
-        f"pp{prompt_tokens}", f"tg{gen_tokens}", f"b{batch}",
-    ])
+def canonical_spec_id(
+    backend: str,
+    model_id: str,
+    quantization: str,
+    prompt_tokens: int,
+    gen_tokens: int,
+    batch: int = 1,
+) -> str:
+    return ".".join(
+        [
+            backend,
+            model_id,
+            quantization,
+            f"pp{prompt_tokens}",
+            f"tg{gen_tokens}",
+            f"b{batch}",
+        ]
+    )
 
 
 # ---- Default benchmark matrix (CPU-first, GPU-free start) --------------------

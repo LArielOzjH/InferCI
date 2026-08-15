@@ -1,4 +1,5 @@
 """Make the `inferci` package importable when running unittest discovery."""
+
 import os
 import sys
 

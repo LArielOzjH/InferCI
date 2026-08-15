@@ -8,6 +8,7 @@ are honest and reproducible anywhere.
   * pp<N>  -> prompt processing (prefill) throughput  -> drives TTFT
   * tg<N>  -> token generation (decode) throughput     -> drives ITL / steady state
 """
+
 from __future__ import annotations
 
 import glob
@@ -136,16 +137,24 @@ class LlamaCppRunner(Runner):
             )
         return self.binary
 
-    def _run_bench(self, spec: BenchmarkSpec, ngl: int) -> tuple[dict[str, tuple[float, float]], str, str]:
+    def _run_bench(
+        self, spec: BenchmarkSpec, ngl: int
+    ) -> tuple[dict[str, tuple[float, float]], str, str]:
         binary = self._binary_or_raise()
         cmd = [
             binary,
-            "-m", spec.model_file,
-            "-p", str(spec.prompt_tokens),
-            "-n", str(spec.gen_tokens),
-            "-r", str(spec.repeats),
-            "-ngl", str(ngl),
-            "-o", "json",
+            "-m",
+            spec.model_file,
+            "-p",
+            str(spec.prompt_tokens),
+            "-n",
+            str(spec.gen_tokens),
+            "-r",
+            str(spec.repeats),
+            "-ngl",
+            str(ngl),
+            "-o",
+            "json",
         ]
         threads = int(spec.extra.get("threads") or 0)
         if threads > 0:
@@ -170,11 +179,12 @@ class LlamaCppRunner(Runner):
             cmd2 = list(cmd)
             if "-o" in cmd2:
                 i = cmd2.index("-o")
-                del cmd2[i:i + 2]
+                del cmd2[i : i + 2]
             proc2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=1800)
             if proc2.returncode != 0:
                 raise RuntimeError(
-                    f"llama-bench fallback failed (rc={proc2.returncode}): {proc2.stderr.strip()[:2000]}"
+                    f"llama-bench fallback failed (rc={proc2.returncode}): "
+                    f"{proc2.stderr.strip()[:2000]}"
                 )
             parsed = _parse_text(proc2.stdout)
             raw = proc.stdout + "\n--- fallback (markdown) ---\n" + proc2.stdout
@@ -194,7 +204,9 @@ class LlamaCppRunner(Runner):
         try:
             proc = subprocess.run(
                 ["git", "-C", repo, "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             out = proc.stdout.strip()
             return out or None
@@ -218,9 +230,7 @@ class LlamaCppRunner(Runner):
         pp_tps, pp_std = parsed.get(pp_key, (0.0, 0.0))
         tg_tps, tg_std = parsed.get(tg_key, (0.0, 0.0))
         if pp_tps == 0.0 and tg_tps == 0.0:
-            raise RuntimeError(
-                f"llama-bench produced no pp/tg metrics; stdout={stdout[:500]!r}"
-            )
+            raise RuntimeError(f"llama-bench produced no pp/tg metrics; stdout={stdout[:500]!r}")
 
         metrics = Metrics(
             pp_tps=pp_tps,

@@ -26,7 +26,6 @@ class TestCost(unittest.TestCase):
             compute_cost(100.0, 50.0, instance_type="gpu.typo.not-real")
 
     def test_lookup_returns_copy(self):
-        import copy
         e = lookup_price("gpu.a10g.g5.xlarge")
         self.assertIsNotNone(e)
         e["hourly"] = 999.0

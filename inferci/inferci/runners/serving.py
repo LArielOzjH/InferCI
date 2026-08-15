@@ -17,6 +17,7 @@ Only the standard library is used: `http.client` for the stream (unbuffered so
 token arrival times are not batched), `urllib.parse` for the URL, `subprocess`
 is *not* needed here (that lives in `llama_server.py`).
 """
+
 from __future__ import annotations
 
 import http.client
@@ -25,8 +26,9 @@ import os
 import statistics
 import time
 import urllib.parse
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Optional, Sequence
+from typing import Any
 
 from ..schema import (
     BenchmarkSpec,
@@ -78,8 +80,18 @@ def compute_itl(intervals_ms: Sequence[float]) -> PerTokenLatency:
 # Qwen2.5 — and stable across common English tokenizers. Repeating one word
 # `n` times therefore yields a prompt of exactly `n` tokens.
 _PROMPT_WORDS = (
-    "benchmark", "network", "compute", "serving", "inference", "latency",
-    "throughput", "tokenize", "system", "design", "metric", "sample",
+    "benchmark",
+    "network",
+    "compute",
+    "serving",
+    "inference",
+    "latency",
+    "throughput",
+    "tokenize",
+    "system",
+    "design",
+    "metric",
+    "sample",
 )
 
 
@@ -147,15 +159,16 @@ def http_get_status(url: str, timeout: float = 2.0) -> int:
 @dataclass
 class _StreamSample:
     """Raw client-side measurement for a single streamed completion."""
+
     ttft_ms: float = 0.0
-    itl_ms: list = field(default_factory=list)      # inter-token gaps
-    first_token_s: float = 0.0                       # since request sent
-    last_token_s: float = 0.0                        # since request sent
+    itl_ms: list = field(default_factory=list)  # inter-token gaps
+    first_token_s: float = 0.0  # since request sent
+    last_token_s: float = 0.0  # since request sent
     prompt_tokens: int = 0
     generated_tokens: int = 0
     total_s: float = 0.0
-    wall_start: float = 0.0                          # time.monotonic() at dispatch
-    wall_end: float = 0.0                            # time.monotonic() at stream end
+    wall_start: float = 0.0  # time.monotonic() at dispatch
+    wall_end: float = 0.0  # time.monotonic() at stream end
     usage: dict = field(default_factory=dict)
     timings: dict = field(default_factory=dict)
 
@@ -181,10 +194,10 @@ class OpenAIServingRunner(Runner):
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
+        base_url: str | None = None,
+        model: str | None = None,
         *,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: float = 600.0,
     ):
         self.base_url = (base_url or "").rstrip("/")
@@ -213,14 +226,11 @@ class OpenAIServingRunner(Runner):
             )
         if not model:
             raise ValueError(
-                "no model name: pass it to OpenAIServingRunner(model=...) "
-                "or set spec.model_id"
+                "no model name: pass it to OpenAIServingRunner(model=...) or set spec.model_id"
             )
         return base_url, model
 
-    def _build_payload(
-        self, spec: BenchmarkSpec, model: str, prompt: str
-    ) -> dict:
+    def _build_payload(self, spec: BenchmarkSpec, model: str, prompt: str) -> dict:
         sampling = spec.sampling
         payload: dict[str, Any] = {
             "model": model,
@@ -244,9 +254,7 @@ class OpenAIServingRunner(Runner):
         return payload
 
     # -- HTTP plumbing -----------------------------------------------------
-    def _open_connection(
-        self, base_url: str
-    ) -> tuple[http.client.HTTPConnection, str]:
+    def _open_connection(self, base_url: str) -> tuple[http.client.HTTPConnection, str]:
         parts = urllib.parse.urlsplit(base_url)
         scheme = (parts.scheme or "http").lower()
         host = parts.hostname
@@ -286,7 +294,7 @@ class OpenAIServingRunner(Runner):
                     line = line.strip()
                     if not line.startswith(b"data:"):
                         continue
-                    data = line[len(b"data:"):].strip()
+                    data = line[len(b"data:") :].strip()
                     if data == b"[DONE]":
                         yield arrival, None
                         continue
@@ -296,9 +304,7 @@ class OpenAIServingRunner(Runner):
                         continue
                     yield arrival, obj
 
-    def _measure_once(
-        self, base_url: str, payload: dict
-    ) -> _StreamSample:
+    def _measure_once(self, base_url: str, payload: dict) -> _StreamSample:
         body = json.dumps(payload).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
@@ -316,9 +322,7 @@ class OpenAIServingRunner(Runner):
             resp = conn.getresponse()
             if resp.status != 200:
                 raw = resp.read().decode("utf-8", "replace")
-                raise RuntimeError(
-                    f"completion returned HTTP {resp.status}: {raw[:500]}"
-                )
+                raise RuntimeError(f"completion returned HTTP {resp.status}: {raw[:500]}")
 
             token_times: list[float] = []
             for arrival_s, obj in self._iter_sse(resp, t_start):
@@ -351,15 +355,10 @@ class OpenAIServingRunner(Runner):
 
         sample.ttft_ms = sample.first_token_s * 1000.0
         sample.itl_ms = [
-            (token_times[i + 1] - token_times[i]) * 1000.0
-            for i in range(len(token_times) - 1)
+            (token_times[i + 1] - token_times[i]) * 1000.0 for i in range(len(token_times) - 1)
         ]
-        sample.generated_tokens = int(
-            sample.usage.get("completion_tokens") or len(token_times)
-        )
-        sample.prompt_tokens = int(
-            sample.usage.get("prompt_tokens") or 0
-        )
+        sample.generated_tokens = int(sample.usage.get("completion_tokens") or len(token_times))
+        sample.prompt_tokens = int(sample.usage.get("prompt_tokens") or 0)
         return sample
 
     def _measure_concurrent(self, base_url: str, payloads: list[dict]) -> list[_StreamSample]:
@@ -403,9 +402,7 @@ class OpenAIServingRunner(Runner):
             # A fresh prompt per request (via `salt`) defeats prompt caching so
             # every measured request does a real prefill.
             return [
-                self._build_payload(
-                    spec, model, _make_prompt(spec.prompt_tokens, salt=salt0 + j)
-                )
+                self._build_payload(spec, model, _make_prompt(spec.prompt_tokens, salt=salt0 + j))
                 for j in range(count)
             ]
 

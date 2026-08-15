@@ -1,5 +1,9 @@
 # InferCI
 
+[![CI](https://github.com/LArielOzjH/InferCI/actions/workflows/ci.yml/badge.svg)](https://github.com/LArielOzjH/InferCI/actions)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 **Neutral, reproducible inference performance & cost regression CI.**
 
 > The engine vendors will never benchmark their competitors fairly, never

@@ -19,6 +19,7 @@ so this class only adds process lifecycle + environment capture on top.
 expose the same ``/v1/completions`` API (vLLM here, SGLang in ``sglang.py``);
 only the identity and launch/version/probe knobs differ between them.
 """
+
 from __future__ import annotations
 
 import os
@@ -29,7 +30,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Optional
 
 from ..schema import (
     Accelerator,
@@ -74,29 +74,29 @@ class _GPUCompletionsRunner(OpenAIServingRunner):
     name = "GPU OpenAI-compatible serving (/v1/completions)"
 
     # -- subclass knobs -----------------------------------------------------
-    _base_url_env = "INFERCI_GPU_BASE_URL"       # env-var fallback for base_url
-    _module_name = "package"                     # importable package name
-    _pip_name = "package"                        # pip install hint
-    _launch_module = []                          # e.g. ["vllm.entrypoints.openai.api_server"]
-    _launch_model_flag = "--model"               # "--model" (vLLM) | "--model-path" (SGLang)
-    _health_timeout = 300.0                      # GPU model load can be slow
+    _base_url_env = "INFERCI_GPU_BASE_URL"  # env-var fallback for base_url
+    _module_name = "package"  # importable package name
+    _pip_name = "package"  # pip install hint
+    _launch_module = []  # e.g. ["vllm.entrypoints.openai.api_server"]
+    _launch_model_flag = "--model"  # "--model" (vLLM) | "--model-path" (SGLang)
+    _health_timeout = 300.0  # GPU model load can be slow
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
+        base_url: str | None = None,
+        model: str | None = None,
         *,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         host: str = _DEFAULT_HOST,
-        port: Optional[int] = None,
-        extra_args: Optional[list[str]] = None,
+        port: int | None = None,
+        extra_args: list[str] | None = None,
         timeout: float = 600.0,
     ):
         self.host = host or _DEFAULT_HOST
         self.port = port  # may stay None until launch() picks a free port
         self.extra_args = list(extra_args or [])
-        self._proc: Optional[subprocess.Popen] = None
-        self._log_dir: Optional[str] = None
+        self._proc: subprocess.Popen | None = None
+        self._log_dir: str | None = None
         self._log_fh = None
         super().__init__(base_url=base_url, model=model, api_key=api_key, timeout=timeout)
 
@@ -107,10 +107,7 @@ class _GPUCompletionsRunner(OpenAIServingRunner):
     # -- target resolution ----------------------------------------------------
     def _resolve_target(self, spec: BenchmarkSpec) -> tuple[str, str]:
         base_url = (
-            self.base_url
-            or spec.extra.get("base_url")
-            or os.environ.get(self._base_url_env)
-            or ""
+            self.base_url or spec.extra.get("base_url") or os.environ.get(self._base_url_env) or ""
         ).rstrip("/")
         model = self.model or spec.extra.get("model") or spec.model_id or ""
         if not base_url:
@@ -120,8 +117,7 @@ class _GPUCompletionsRunner(OpenAIServingRunner):
             )
         if not model:
             raise ValueError(
-                f"no model name: pass it to {type(self).__name__}(model=...) "
-                "or set spec.model_id"
+                f"no model name: pass it to {type(self).__name__}(model=...) or set spec.model_id"
             )
         return base_url, model
 
@@ -136,13 +132,15 @@ class _GPUCompletionsRunner(OpenAIServingRunner):
             env.accelerator = gpu
         return env
 
-    def _discover_version(self) -> Optional[str]:
+    def _discover_version(self) -> str | None:
         """Best-effort package version; ``None`` when the import fails."""
         code = f"import {self._module_name}; print({self._module_name}.__version__)"
         try:
             proc = subprocess.run(
                 [self._python(), "-c", code],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
         except Exception:
             return None
@@ -151,7 +149,7 @@ class _GPUCompletionsRunner(OpenAIServingRunner):
         out = (proc.stdout or "").strip()
         return out.splitlines()[0][:160] if out else None
 
-    def _discover_gpu(self) -> Optional[Accelerator]:
+    def _discover_gpu(self) -> Accelerator | None:
         """Return the first CUDA GPU reported by ``nvidia-smi``, or ``None``."""
         nvidia_smi = shutil.which("nvidia-smi")
         if not nvidia_smi:
@@ -159,7 +157,9 @@ class _GPUCompletionsRunner(OpenAIServingRunner):
         try:
             proc = subprocess.run(
                 [nvidia_smi, "--query-gpu=name,memory.total", "--format=csv,noheader"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
         except Exception:
             return None
@@ -180,7 +180,9 @@ class _GPUCompletionsRunner(OpenAIServingRunner):
         try:
             proc = subprocess.run(
                 [nvidia_smi, "--query-gpu=driver_version", "--format=csv,noheader"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
         except Exception:
             return ""
@@ -208,14 +210,20 @@ class _GPUCompletionsRunner(OpenAIServingRunner):
             )
 
     def _launch_command(self, model: str) -> list[str]:
-        return (
-            [self._python(), "-m"] + list(self._launch_module)
-            + [self._launch_model_flag, str(model), "--host", self.host,
-               "--port", str(self.port)]
-            + self.extra_args
-        )
+        return [
+            self._python(),
+            "-m",
+            *self._launch_module,
+            self._launch_model_flag,
+            str(model),
+            "--host",
+            self.host,
+            "--port",
+            str(self.port),
+            *self.extra_args,
+        ]
 
-    def launch(self, model, port: Optional[int] = None, extra_args: Optional[list[str]] = None):
+    def launch(self, model, port: int | None = None, extra_args: list[str] | None = None):
         """Start the local server, wait for ``/health``, and return ``self``.
 
         ``model`` is the value handed to ``--model`` (vLLM) / ``--model-path``
@@ -261,7 +269,7 @@ class _GPUCompletionsRunner(OpenAIServingRunner):
             return ""
         log_path = os.path.join(self._log_dir, "server.log")
         try:
-            with open(log_path, "r", errors="replace") as f:
+            with open(log_path, errors="replace") as f:
                 return f.read()[-n:]
         except OSError:
             return ""

@@ -23,10 +23,12 @@ class TestSchemaRoundTrip(unittest.TestCase):
             extra={"device": "cpu"},
         )
         env = Environment(backend="llama_cpp", backend_version="abc123")
-        m = Metrics(pp_tps=100.0, tg_tps=50.0, ttft_ms=10.0,
-                    itl=PerTokenLatency(mean_ms=20.0, p95_ms=25.0))
-        return RunResult(spec=spec, environment=env, metrics=m,
-                         cost=CostResult(price_per_output_1m=1.5))
+        m = Metrics(
+            pp_tps=100.0, tg_tps=50.0, ttft_ms=10.0, itl=PerTokenLatency(mean_ms=20.0, p95_ms=25.0)
+        )
+        return RunResult(
+            spec=spec, environment=env, metrics=m, cost=CostResult(price_per_output_1m=1.5)
+        )
 
     def test_roundtrip_preserves_nested(self):
         r = self._make()
@@ -41,8 +43,9 @@ class TestSchemaRoundTrip(unittest.TestCase):
         self.assertAlmostEqual(r2.cost.price_per_output_1m, 1.5)
 
     def test_canonical_id_explicit_and_default(self):
-        s = BenchmarkSpec(backend="x", model_id="m", quantization="q",
-                          prompt_tokens=512, gen_tokens=128, batch=1)
+        s = BenchmarkSpec(
+            backend="x", model_id="m", quantization="q", prompt_tokens=512, gen_tokens=128, batch=1
+        )
         self.assertEqual(s.canonical_id(), "x.m.q.pp512.tg128.b1")
         s.id = "custom"
         self.assertEqual(s.canonical_id(), "custom")
@@ -50,6 +53,7 @@ class TestSchemaRoundTrip(unittest.TestCase):
     def test_json_is_serializable(self):
         r = self._make()
         import json
+
         json.loads(r.to_json())
 
 

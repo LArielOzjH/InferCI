@@ -5,8 +5,9 @@ orchestration + spec + aggregation. Runners (GPU/CPU/NPU) are contributed
 resources. This package is the GPU-free core.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
+from .regression import RegressionFinding, Verdict, compare_runs
 from .schema import (
     Accelerator,
     BenchmarkSpec,
@@ -17,19 +18,18 @@ from .schema import (
     RunResult,
     Sampling,
 )
-from .regression import compare_runs, RegressionFinding, Verdict
 
 __all__ = [
-    "__version__",
     "Accelerator",
     "BenchmarkSpec",
     "CostResult",
     "Environment",
     "Metrics",
     "PerTokenLatency",
+    "RegressionFinding",
     "RunResult",
     "Sampling",
-    "compare_runs",
-    "RegressionFinding",
     "Verdict",
+    "__version__",
+    "compare_runs",
 ]

@@ -3,14 +3,20 @@ import os
 import unittest
 
 from inferci.quality import (
+    EVAL_REGISTRY,
+    Eval,
     GateConfig,
     GateResult,
+    NeedleInHaystack,
+    NiahResult,
     RecallGate,
+    build_needle_messages,
     build_needle_prompt,
     judge,
     make_needle,
     needle_in_answer,
     quality_per_dollar,
+    register_eval,
 )
 from inferci.runners.llama_server import LlamaServerRunner
 from inferci.schema import BenchmarkSpec
@@ -67,8 +73,7 @@ class TestRecallJudgement(unittest.TestCase):
 
     def test_exact_hit(self):
         self.assertTrue(
-            needle_in_answer("CRIMSON-FALCON-3317",
-                             "The passphrase is CRIMSON-FALCON-3317.")
+            needle_in_answer("CRIMSON-FALCON-3317", "The passphrase is CRIMSON-FALCON-3317.")
         )
 
     def test_case_and_punct_insensitive(self):
@@ -78,9 +83,7 @@ class TestRecallJudgement(unittest.TestCase):
         self.assertFalse(needle_in_answer("CRIMSON-FALCON-3317", "not found"))
 
     def test_partial_overlap_is_not_a_hit(self):
-        self.assertFalse(
-            needle_in_answer("CRIMSON-FALCON-3317", "CRIMSON-FALCON-331")
-        )
+        self.assertFalse(needle_in_answer("CRIMSON-FALCON-3317", "CRIMSON-FALCON-331"))
 
 
 class TestJudge(unittest.TestCase):
@@ -179,6 +182,150 @@ class TestRecallGateIntegration(unittest.TestCase):
         self.assertEqual(results[-1].budget, 256)
         self.assertEqual(results[-1].note, "baseline (full context)")
         self.assertEqual(results[-1].verdict, "PASS")
+
+
+class TestEvalRegistry(unittest.TestCase):
+    """Pluggable eval protocol: registration and lookup."""
+
+    def test_niah_is_registered(self):
+        self.assertIn("niah", EVAL_REGISTRY)
+        self.assertIs(EVAL_REGISTRY["niah"], NeedleInHaystack)
+        self.assertEqual(EVAL_REGISTRY["niah"].name, "niah")
+
+    def test_niah_implements_protocol(self):
+        self.assertTrue(issubclass(NeedleInHaystack, Eval))
+        self.assertTrue(callable(NeedleInHaystack.score))
+
+    def test_register_function(self):
+        class _DummyEval(Eval):
+            name = "dummy-fn"
+
+            def score(self, base_url, model, config=None, **kw):
+                return 0.5
+
+        register_eval("dummy-fn", _DummyEval)
+        try:
+            self.assertIs(EVAL_REGISTRY["dummy-fn"], _DummyEval)
+        finally:
+            EVAL_REGISTRY.pop("dummy-fn", None)
+
+    def test_register_decorator(self):
+        @register_eval("dummy-dec")
+        class _DummyEval(Eval):
+            name = "dummy-dec"
+
+            def score(self, base_url, model, config=None, **kw):
+                return 0.25
+
+        try:
+            self.assertIs(EVAL_REGISTRY["dummy-dec"], _DummyEval)
+        finally:
+            EVAL_REGISTRY.pop("dummy-dec", None)
+
+
+class TestNeedleChatMode(unittest.TestCase):
+    """Chat mode must build a ``messages`` payload; completions keep ``prompt``."""
+
+    def test_chat_payload_has_messages(self):
+        niah = NeedleInHaystack("http://localhost:1", "test-model", chat=True)
+        payload = niah.build_payload(128, needle="CRIMSON-FALCON-8842")
+        self.assertIn("messages", payload)
+        self.assertNotIn("prompt", payload)
+        self.assertEqual([m["role"] for m in payload["messages"]], ["system", "user"])
+        self.assertIn("CRIMSON-FALCON-8842", payload["messages"][1]["content"])
+
+    def test_completions_payload_has_prompt(self):
+        niah = NeedleInHaystack("http://localhost:1", "test-model")
+        payload = niah.build_payload(128)
+        self.assertIn("prompt", payload)
+        self.assertNotIn("messages", payload)
+
+    def test_chat_can_be_toggled_per_payload(self):
+        niah = NeedleInHaystack("http://localhost:1", "test-model")
+        self.assertIn("messages", niah.build_payload(64, chat=True))
+        self.assertIn("prompt", niah.build_payload(64))
+
+    def test_build_needle_messages_structure(self):
+        messages = build_needle_messages(128, needle="CRIMSON-FALCON-8842")
+        self.assertEqual([m["role"] for m in messages], ["system", "user"])
+        self.assertIn("CRIMSON-FALCON-8842", messages[1]["content"])
+
+
+class TestRecallGateEvalParam(unittest.TestCase):
+    """``eval=`` selects the probe class from the registry (no server needed)."""
+
+    def test_eval_param_runs_registered_eval(self):
+        @register_eval("dummy-gate")
+        class _DummyEval(Eval):
+            name = "dummy-gate"
+
+            def score(self, base_url, model, config=None, **kw):
+                return 0.5
+
+        try:
+            gate = RecallGate(
+                "http://localhost:1",
+                "m",
+                config=GateConfig(repeats=1, budgets=[8, 16]),
+            )
+            results = gate.evaluate(budgets=[8, 16], eval="dummy-gate")
+        finally:
+            EVAL_REGISTRY.pop("dummy-gate", None)
+
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(r.quality == 0.5 for r in results))
+        # generic evals report no throughput -> local/free -> infinite qpd
+        self.assertTrue(all(math.isinf(r.quality_per_dollar) for r in results))
+        self.assertTrue(all(r.verdict == "PASS" for r in results))
+
+    def test_unknown_eval_raises(self):
+        gate = RecallGate(
+            "http://localhost:1",
+            "m",
+            config=GateConfig(repeats=1, budgets=[8]),
+        )
+        with self.assertRaises(ValueError):
+            gate.evaluate(budgets=[8], eval="no-such-eval")
+
+
+class TestNiahChatIntegration(unittest.TestCase):
+    """Real chat-mode NIAH against llama-server.
+
+    Skipped unless the binary + model are available. The 0.5B model is weak and
+    its chat-template output is not guaranteed to recall the needle, so we only
+    assert the flow runs and returns a structured ``NiahResult`` (quality in
+    0..1, non-empty answer) rather than a recall hit.
+    """
+
+    def test_niah_chat_if_available(self):
+        model = _test_model()
+        runner = LlamaServerRunner(model_file=model or None)
+        if not runner.binary or not model or not os.path.exists(model):
+            self.skipTest("llama-server binary or test model not available")
+
+        spec = BenchmarkSpec(
+            backend="llama_server",
+            model_id="inferci-niah-chat",
+            model_file=model,
+            quantization="Q4_K_M",
+            prompt_tokens=128,
+            gen_tokens=32,
+        )
+        alias = "inferci-niah-chat"
+        runner._start_server(model, alias, spec)
+        try:
+            runner._wait_health()
+            niah = NeedleInHaystack(runner.base_url, alias, chat=True)
+            result = niah.evaluate(128, max_tokens=32)
+        finally:
+            runner._stop_server()
+
+        self.assertIsInstance(result, NiahResult)
+        self.assertIsInstance(result.quality, float)
+        self.assertGreaterEqual(result.quality, 0.0)
+        self.assertLessEqual(result.quality, 1.0)
+        self.assertIsInstance(result.answer, str)
+        self.assertTrue(result.answer)  # the stream produced at least one token
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inferci"
-version = "0.1.0"
+version = "0.2.0"
 description = "Neutral, reproducible inference performance & cost regression CI (BYO-runner orchestrator)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,9 +14,39 @@ authors = [{ name = "InferCI contributors" }]
 # 依赖越少，越可复现、越可信。这就是中立性的工程前提。
 dependencies = []
 
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5",
+    "coverage>=7.0",
+    "pre-commit>=3.0",
+]
+
 [project.scripts]
 inferci = "inferci.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["inferci*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "SIM115",  # open() for subprocess log files in tests is intentional
+    "SIM105",  # defensive try/except: pass in cleanup/__del__ paths
+    "RUF012",  # class-level read-only "knob" attrs (overridden by subclasses, never mutated)
+]
+
+[tool.coverage.run]
+source = ["inferci"]
+omit = ["inferci/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 75
+exclude_lines = [
+    "pragma: no cover",
+    'if __name__ == "__main__":',
+]

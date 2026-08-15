@@ -27,6 +27,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Compile-check all modules
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
         working-directory: inferci
-        run: python -m compileall -q inferci tests
+        run: ruff check inferci tests
+      - name: Ruff format check
+        working-directory: inferci
+        run: ruff format --check inferci tests
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install (with dev extras)
+        working-directory: inferci
+        run: pip install -e ".[dev]"
+      - name: Run tests with coverage
+        working-directory: inferci
+        run: |
+          coverage run --source=inferci -m unittest discover -s tests
+          coverage report --fail-under=75
