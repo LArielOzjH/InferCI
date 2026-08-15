@@ -31,3 +31,7 @@ data/__pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# generated dashboard output
+inferci/dashboard.html
+dashboard.html
