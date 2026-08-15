@@ -121,6 +121,8 @@ class _StreamSample:
     prompt_tokens: int = 0
     generated_tokens: int = 0
     total_s: float = 0.0
+    wall_start: float = 0.0                          # time.monotonic() at dispatch
+    wall_end: float = 0.0                            # time.monotonic() at stream end
     usage: dict = field(default_factory=dict)
     timings: dict = field(default_factory=dict)
 
@@ -275,6 +277,7 @@ class OpenAIServingRunner(Runner):
         conn, path = self._open_connection(base_url)
         sample = _StreamSample()
         t_start = time.perf_counter()
+        sample.wall_start = time.monotonic()
         try:
             conn.request("POST", path, body=body, headers=headers)
             resp = conn.getresponse()
@@ -306,6 +309,7 @@ class OpenAIServingRunner(Runner):
                 token_times.append(arrival_s)
 
             sample.total_s = time.perf_counter() - t_start
+            sample.wall_end = time.monotonic()
         finally:
             conn.close()
 
@@ -325,52 +329,104 @@ class OpenAIServingRunner(Runner):
         )
         return sample
 
+    def _measure_concurrent(self, base_url: str, payloads: list[dict]) -> list[_StreamSample]:
+        """Fire `payloads` concurrently (one thread each) and collect samples."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=max(1, len(payloads))) as ex:
+            return list(ex.map(lambda p: self._measure_once(base_url, p), payloads))
+
+    def _aggregate_concurrent(
+        self, samples: list[_StreamSample]
+    ) -> tuple[float, float, float, list[float]]:
+        """Aggregate a concurrent burst -> (pp_tps, tg_tps, ttft_ms, itl_ms).
+
+        Throughput is *system* throughput: total generated tokens over the wall
+        span from first dispatch to last completion (this is the number that
+        matters under continuous batching). Latency is per-request TTFT mean and
+        pooled ITL.
+        """
+        if not samples:
+            raise RuntimeError("no samples to aggregate")
+        total_gen = sum(s.generated_tokens for s in samples)
+        span = max(s.wall_end for s in samples) - min(s.wall_start for s in samples)
+        tg_tps = total_gen / span if span > 0 else 0.0
+        pp_vals = [s.pp_tps for s in samples if s.pp_tps > 0]
+        pp_tps = statistics.mean(pp_vals) if pp_vals else 0.0
+        ttft_ms = statistics.mean(s.ttft_ms for s in samples)
+        itl_ms: list[float] = []
+        for s in samples:
+            itl_ms.extend(s.itl_ms)
+        return pp_tps, tg_tps, ttft_ms, itl_ms
+
     # -- benchmark ---------------------------------------------------------
     def run(self, spec: BenchmarkSpec, environment: Environment) -> RunResult:
         base_url, model = self._resolve_target(spec)
-
         n_warmup = max(0, int(spec.warmup_repeats))
         n_repeat = max(1, int(spec.repeats))
+        batch = max(1, int(spec.batch))
 
-        # A fresh prompt per request (via `salt`) avoids prompt-cache hits so
-        # each measured request does a real prefill.
-        for i in range(n_warmup):  # warm-up is measured but discarded
-            payload = self._build_payload(
-                spec, model, _make_prompt(spec.prompt_tokens, salt=i)
-            )
-            self._measure_once(base_url, payload)
+        def payloads(salt0: int, count: int) -> list[dict]:
+            # A fresh prompt per request (via `salt`) defeats prompt caching so
+            # every measured request does a real prefill.
+            return [
+                self._build_payload(
+                    spec, model, _make_prompt(spec.prompt_tokens, salt=salt0 + j)
+                )
+                for j in range(count)
+            ]
 
+        # warm-up (timed but discarded)
+        salt = 0
+        for _ in range(n_warmup):
+            if batch > 1:
+                self._measure_concurrent(base_url, payloads(salt, batch))
+            else:
+                self._measure_once(base_url, payloads(salt, 1)[0])
+            salt += batch
+
+        # timed runs
         samples: list[_StreamSample] = []
-        for i in range(n_repeat):
-            payload = self._build_payload(
-                spec, model, _make_prompt(spec.prompt_tokens, salt=n_warmup + i)
-            )
-            samples.append(self._measure_once(base_url, payload))
+        for _ in range(n_repeat):
+            if batch > 1:
+                samples.extend(self._measure_concurrent(base_url, payloads(salt, batch)))
+            else:
+                samples.append(self._measure_once(base_url, payloads(salt, 1)[0]))
+            salt += batch
 
         # Fall back to the requested length when the backend omits `usage`.
         for s in samples:
             if not s.prompt_tokens:
                 s.prompt_tokens = int(spec.prompt_tokens)
 
-        itl_all: list[float] = []
-        for s in samples:
-            itl_all.extend(s.itl_ms)
+        if batch > 1:
+            pp_tps, tg_tps, ttft_ms, itl_ms = self._aggregate_concurrent(samples)
+            pp_std = tg_std = 0.0
+        else:
+            pp = [s.pp_tps for s in samples]
+            tg = [s.tg_tps for s in samples]
+            ttfts = [s.ttft_ms for s in samples]
+            pp_tps = statistics.mean(pp) if pp else 0.0
+            tg_tps = statistics.mean(tg) if tg else 0.0
+            pp_std = statistics.pstdev(pp) if len(pp) > 1 else 0.0
+            tg_std = statistics.pstdev(tg) if len(tg) > 1 else 0.0
+            ttft_ms = statistics.mean(ttfts) if ttfts else 0.0
+            itl_ms = []
+            for s in samples:
+                itl_ms.extend(s.itl_ms)
 
-        ttfts = [s.ttft_ms for s in samples]
-        tg = [s.tg_tps for s in samples]
-        pp = [s.pp_tps for s in samples]
-
-        last = samples[-1]
+        itl = compute_itl(itl_ms)
+        first = samples[0]
         metrics = Metrics(
-            pp_tps=statistics.mean(pp) if pp else 0.0,
-            tg_tps=statistics.mean(tg) if tg else 0.0,
-            pp_tps_std=statistics.pstdev(pp) if len(pp) > 1 else 0.0,
-            tg_tps_std=statistics.pstdev(tg) if len(tg) > 1 else 0.0,
-            ttft_ms=statistics.mean(ttfts) if ttfts else 0.0,
-            itl=compute_itl(itl_all),
+            pp_tps=pp_tps,
+            tg_tps=tg_tps,
+            pp_tps_std=pp_std,
+            tg_tps_std=tg_std,
+            ttft_ms=ttft_ms,
+            itl=itl,
             total_seconds=sum(s.total_s for s in samples),
-            prompt_tokens=last.prompt_tokens,
-            generated_tokens=last.generated_tokens,
+            prompt_tokens=first.prompt_tokens,
+            generated_tokens=sum(s.generated_tokens for s in samples),
         )
         if spec.model_file and os.path.exists(spec.model_file):
             metrics.model_size_mb = os.path.getsize(spec.model_file) / 1e6
@@ -379,15 +435,17 @@ class OpenAIServingRunner(Runner):
             "runner": self.id,
             "base_url": base_url,
             "model": model,
+            "batch": batch,
             "repeats": n_repeat,
             "warmup_repeats": n_warmup,
             "measured": "client-side streaming timestamps",
             "prompt_varied_per_request": True,  # defeats prompt caching
-            "ttft_ms_per_repeat": [round(s.ttft_ms, 3) for s in samples],
-            "tg_tps_per_repeat": [round(s.tg_tps, 3) for s in samples],
-            "pp_tps_per_repeat": [round(s.pp_tps, 3) for s in samples],
-            "prompt_tokens_actual": last.prompt_tokens,
-            "generated_tokens_actual": last.generated_tokens,
+            "throughput_mode": "aggregate (system throughput)" if batch > 1 else "single-stream",
+            "ttft_ms_per_request": [round(s.ttft_ms, 3) for s in samples],
+            "tg_tps_per_request": [round(s.tg_tps, 3) for s in samples],
+            "pp_tps_per_request": [round(s.pp_tps, 3) for s in samples],
+            "prompt_tokens_actual": first.prompt_tokens,
+            "generated_tokens_actual": sum(s.generated_tokens for s in samples),
             "server_timings": [s.timings for s in samples],
         }
         return RunResult(

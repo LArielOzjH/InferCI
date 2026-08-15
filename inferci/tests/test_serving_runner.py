@@ -4,6 +4,7 @@ import unittest
 from inferci.runners.llama_server import LlamaServerRunner, _find_llama_server
 from inferci.runners.serving import (
     OpenAIServingRunner,
+    _StreamSample,
     _make_prompt,
     compute_itl,
     percentile,
@@ -85,6 +86,24 @@ def _test_model() -> str:
     return ""
 
 
+class TestConcurrentAggregation(unittest.TestCase):
+    def test_aggregate_math(self):
+        a = _StreamSample(wall_start=0.0, wall_end=1.0, generated_tokens=10,
+                          prompt_tokens=100, ttft_ms=10.0)
+        b = _StreamSample(wall_start=0.0, wall_end=1.0, generated_tokens=20,
+                          prompt_tokens=100, ttft_ms=20.0)
+        r = OpenAIServingRunner()
+        pp, tg, ttft, itl = r._aggregate_concurrent([a, b])
+        self.assertAlmostEqual(tg, 30.0)       # 30 tokens / 1s span
+        self.assertAlmostEqual(ttft, 15.0)     # mean(10, 20)
+        self.assertAlmostEqual(pp, 7500.0)     # mean(10000, 5000)
+        self.assertEqual(itl, [])
+
+    def test_aggregate_empty_raises(self):
+        with self.assertRaises(RuntimeError):
+            OpenAIServingRunner()._aggregate_concurrent([])
+
+
 class TestLlamaServerIntegration(unittest.TestCase):
     """Real end-to-end run. Skipped unless binary + model are available."""
 
@@ -112,6 +131,32 @@ class TestLlamaServerIntegration(unittest.TestCase):
         self.assertGreater(res.metrics.itl.p50_ms, 0.0)
         self.assertGreater(res.metrics.generated_tokens, 0)
         self.assertGreater(res.metrics.prompt_tokens, 0)
+
+    def test_concurrent_batch_if_available(self):
+        model = _test_model()
+        runner = LlamaServerRunner(model_file=model or None)
+        if not runner.binary or not model or not os.path.exists(model):
+            self.skipTest("llama-server binary or test model not available")
+
+        spec = BenchmarkSpec(
+            backend="llama_server",
+            model_id="inferci-test",
+            model_file=model,
+            quantization="Q4_K_M",
+            prompt_tokens=32,
+            gen_tokens=16,
+            repeats=1,
+            warmup_repeats=1,
+            batch=2,
+        )
+        env = runner.capture_environment()
+        res = runner.run(spec, env)
+
+        self.assertGreater(res.metrics.tg_tps, 0.0)
+        self.assertGreater(res.metrics.ttft_ms, 0.0)
+        self.assertEqual(res.raw["throughput_mode"], "aggregate (system throughput)")
+        # a batch=2 burst produces >= 2 requests' worth of tokens
+        self.assertGreaterEqual(res.metrics.generated_tokens, 2 * 16)
 
 
 if __name__ == "__main__":

@@ -114,7 +114,7 @@ class LlamaServerRunner(OpenAIServingRunner):
     def _start_server(self, model_file: str, alias: str, spec: BenchmarkSpec) -> None:
         binary = self._binary_or_raise()
         ctx_size = int(spec.extra.get("ctx_size", 4096))
-        parallel = int(spec.extra.get("parallel", 1))
+        parallel = max(int(spec.extra.get("parallel", 1)), max(1, int(spec.batch)))
         threads = int(spec.extra.get("threads") or 0)
 
         cmd = [
