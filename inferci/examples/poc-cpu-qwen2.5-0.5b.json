@@ -1,0 +1,72 @@
+{
+  "run_id": "807861d35fff",
+  "spec": {
+    "spec_version": "0.1.0",
+    "id": "llama_cpp.Qwen2.5-0.5B-Instruct.Q4_K_M.pp512.tg128.b1",
+    "model_id": "Qwen2.5-0.5B-Instruct",
+    "model_file": "../models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "backend": "llama_cpp",
+    "quantization": "Q4_K_M",
+    "prompt_tokens": 512,
+    "gen_tokens": 128,
+    "repeats": 3,
+    "warmup_repeats": 1,
+    "batch": 1,
+    "sampling": {
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "top_k": 0,
+      "seed": 42
+    },
+    "prompt_set": "synthetic",
+    "extra": {
+      "device": "cpu",
+      "threads": 0
+    }
+  },
+  "environment": {
+    "host": "hermes-ariel-mac.local",
+    "os": "Darwin 24.3.0",
+    "arch": "arm64",
+    "cpu": "Apple M2 Pro",
+    "ram_gb": 17.179869184,
+    "accelerator": {
+      "kind": "cpu",
+      "name": "",
+      "memory_gb": 0.0,
+      "driver": ""
+    },
+    "backend": "llama_cpp",
+    "backend_version": "0d9ceae",
+    "lib_versions": {
+      "python": "3.14.4"
+    },
+    "captured_at": "2026-08-15T18:50:34.081571+00:00"
+  },
+  "metrics": {
+    "pp_tps": 1061.762668,
+    "tg_tps": 184.052739,
+    "pp_tps_std": 21.91433,
+    "tg_tps_std": 1.53555,
+    "ttft_ms": 482.21699201803165,
+    "itl": {
+      "mean_ms": 5.433225310491032,
+      "p50_ms": 5.433225310491032,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "total_seconds": 0.0,
+    "prompt_tokens": 512,
+    "generated_tokens": 128,
+    "peak_rss_mb": 0.0,
+    "model_size_mb": 491.400032
+  },
+  "cost": null,
+  "created_at": "2026-08-15T18:50:38.506944+00:00",
+  "raw": {
+    "runner": "llama_cpp",
+    "llama_bench_raw": "[\n  {\n    \"build_commit\": \"0d9ceae\",\n    \"build_number\": 1,\n    \"cpu_info\": \"Accelerate, Apple M2 Pro\",\n    \"gpu_info\": \"Apple M2 Pro\",\n    \"backends\": \"MTL,BLAS\",\n    \"model_filename\": \"../models/qwen2.5-0.5b-instruct-q4_k_m.gguf\",\n    \"model_type\": \"qwen2 1B Q4_K - Medium\",\n    \"model_size\": 485452288,\n    \"model_n_params\": 630167424,\n    \"n_batch\": 2048,\n    \"n_ubatch\": 512,\n    \"n_threads\": 6,\n    \"cpu_mask\": \"0x0\",\n    \"cpu_strict\": false,\n    \"poll\": 50,\n    \"type_k\": \"f16\",\n    \"type_v\": \"f16\",\n    \"n_gpu_layers\": 0,\n    \"n_cpu_moe\": 0,\n    \"split_mode\": \"layer\",\n    \"main_gpu\": 0,\n    \"no_kv_offload\": false,\n    \"flash_attn\": -1,\n    \"devices\": \"auto\",\n    \"tensor_split\": \"0.00\",\n    \"tensor_buft_overrides\": \"none\",\n    \"load_mode\": \"auto\",\n    \"embeddings\": false,\n    \"no_op_offload\": 0,\n    \"no_host\": false,\n    \"fit_target\": 0,\n    \"fit_min_ctx\": 0,\n    \"n_prompt\": 512,\n    \"n_gen\": 0,\n    \"n_depth\": 0,\n    \"test_time\": \"2026-08-15T18:50:34Z\",\n    \"avg_ns\": 482354653,\n    \"stddev_ns\": 10005214,\n    \"avg_ts\": 1061.762668,\n    \"stddev_ts\": 21.914330,\n    \"samples_ns\": [ 473314292, 480645209, 493104458 ],\n    \"samples_ts\": [ 1081.73, 1065.23, 1038.32 ]\n  },\n  {\n    \"build_commit\": \"0d9ceae\",\n    \"build_number\": 1,\n    \"cpu_info\": \"Accelerate, Apple M2 Pro\",\n    \"gpu_info\": \"Apple M2 Pro\",\n    \"backends\": \"MTL,BLAS\",\n    \"model_filename\": \"../models/qwen2.5-0.5b-instruct-q4_k_m.gguf\",\n    \"model_type\": \"qwen2 1B Q4_K - Medium\",\n    \"model_size\": 485452288,\n    \"model_n_params\": 630167424,\n    \"n_batch\": 2048,\n    \"n_ubatch\": 512,\n    \"n_threads\": 6,\n    \"cpu_mask\": \"0x0\",\n    \"cpu_strict\": false,\n    \"poll\": 50,\n    \"type_k\": \"f16\",\n    \"type_v\": \"f16\",\n    \"n_gpu_layers\": 0,\n    \"n_cpu_moe\": 0,\n    \"split_mode\": \"layer\",\n    \"main_gpu\": 0,\n    \"no_kv_offload\": false,\n    \"flash_attn\": -1,\n    \"devices\": \"auto\",\n    \"tensor_split\": \"0.00\",\n    \"tensor_buft_overrides\": \"none\",\n    \"load_mode\": \"auto\",\n    \"embeddings\": false,\n    \"no_op_offload\": 0,\n    \"no_host\": false,\n    \"fit_target\": 0,\n    \"fit_min_ctx\": 0,\n    \"n_prompt\": 0,\n    \"n_gen\": 128,\n    \"n_depth\": 0,\n    \"test_time\": \"2026-08-15T18:50:36Z\",\n    \"avg_ns\": 695485027,\n    \"stddev_ns\": 5787211,\n    \"avg_ts\": 184.052739,\n    \"stddev_ts\": 1.535550,\n    \"samples_ns\": [ 696761167, 689166375, 700527541 ],\n    \"samples_ts\": [ 183.707, 185.732, 182.719 ]\n  }\n]\n",
+    "ttft_ms": "derived",
+    "itl": "derived (mean only, no distribution)"
+  }
+}

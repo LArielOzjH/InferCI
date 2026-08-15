@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inferci"
+version = "0.1.0"
+description = "Neutral, reproducible inference performance & cost regression CI (BYO-runner orchestrator)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "InferCI contributors" }]
+# 刻意零运行时依赖：harness 必须能在任意 CI/Docker/裸机上直接运行，
+# 依赖越少，越可复现、越可信。这就是中立性的工程前提。
+dependencies = []
+
+[project.scripts]
+inferci = "inferci.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["inferci*"]
