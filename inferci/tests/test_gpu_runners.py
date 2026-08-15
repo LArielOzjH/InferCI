@@ -21,11 +21,11 @@ import subprocess
 import tempfile
 import time
 import unittest
-import urllib.request
 from types import SimpleNamespace
 from unittest import mock
 
 from inferci.runners.llama_server import _find_llama_server, _free_port
+from inferci.runners.serving import http_get_status
 from inferci.runners.sglang import SGLangRunner
 from inferci.runners.vllm import VLLMRunner, _parse_memory_gb
 from inferci.schema import BenchmarkSpec, Environment
@@ -231,12 +231,8 @@ def _wait_standin_health(url: str, proc: subprocess.Popen, log_path: str, timeou
             except OSError:
                 pass
             raise RuntimeError(f"llama-server exited early (code {proc.returncode}): {tail}")
-        try:
-            with urllib.request.urlopen(url, timeout=2.0) as r:
-                if r.status == 200:
-                    return
-        except Exception:
-            pass
+        if http_get_status(url, timeout=2.0) == 200:
+            return
         time.sleep(0.1)
     raise TimeoutError(f"llama-server /health not ready in {timeout}s")
 

@@ -26,6 +26,18 @@ def _fmt_ts(iso: str) -> str:
 
 
 def _build_spec(args) -> BenchmarkSpec:
+    extra = {"device": args.device, "threads": args.threads}
+    for kv in getattr(args, "set", None) or []:
+        if "=" not in kv:
+            raise SystemExit(f"--set expects KEY=VALUE, got {kv!r}")
+        k, v = kv.split("=", 1)
+        for cast in (int, float):
+            try:
+                v = cast(v)
+                break
+            except ValueError:
+                continue
+        extra[k] = v
     return BenchmarkSpec(
         model_id=args.model_id,
         model_file=args.model_file,
@@ -37,13 +49,16 @@ def _build_spec(args) -> BenchmarkSpec:
         warmup_repeats=args.warmup,
         batch=args.batch,
         sampling=Sampling(temperature=args.temperature, top_p=args.top_p, seed=args.seed),
-        extra={"device": args.device, "threads": args.threads},
+        extra=extra,
     )
 
 
 def cmd_run(args) -> int:
     spec = _build_spec(args)
     spec.id = spec.canonical_id()
+    if args.backend != "mock" and not spec.model_file:
+        print("error: --model-file is required for this backend", file=sys.stderr)
+        return 2
     runner = get_runner(args.backend)
     env = runner.capture_environment()
     print(f"[inferci] running {spec.canonical_id()} on {args.device} ...", file=sys.stderr)
@@ -73,9 +88,9 @@ def cmd_run(args) -> int:
 def cmd_list(args) -> int:
     store = Store(args.db)
     runs = store.list(limit=args.limit, backend=args.backend, model_id=args.model)
-    print(f"{'run_id':<14}{'created':<20}{'backend':<14}{'model':<22}{'q':<10}{'tg_tps':>9}{'pp_tps':>10}")
+    print(f"{'run_id':<37}{'created':<20}{'backend':<14}{'model':<22}{'q':<10}{'tg_tps':>9}{'pp_tps':>10}")
     for r in runs:
-        print(f"{r.run_id[:12]:<14}{_fmt_ts(r.created_at):<20}{r.spec.backend:<14}"
+        print(f"{r.run_id:<37}{_fmt_ts(r.created_at):<20}{r.spec.backend:<14}"
               f"{r.spec.model_id:<22}{r.spec.quantization:<10}"
               f"{r.metrics.tg_tps:>9.2f}{r.metrics.pp_tps:>10.2f}")
     return 0
@@ -83,10 +98,10 @@ def cmd_list(args) -> int:
 
 def cmd_diff(args) -> int:
     store = Store(args.db)
-    base = store.get(args.base)
-    cand = store.get(args.candidate)
+    base = store.resolve(args.base)
+    cand = store.resolve(args.candidate)
     if not base or not cand:
-        print("run_id not found", file=sys.stderr)
+        print("run_id not found (or ambiguous prefix)", file=sys.stderr)
         return 1
     if base.spec.canonical_id() != cand.spec.canonical_id():
         print("WARNING: spec ids differ; comparison may be apples-to-oranges:", file=sys.stderr)
@@ -146,7 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     r = sub.add_parser("run", help="run a benchmark")
     r.add_argument("--backend", default="llama_cpp", choices=available_runners())
-    r.add_argument("--model-file", required=True)
+    r.add_argument("--model-file", default="", help="model path (not needed for --backend mock)")
     r.add_argument("--model-id", required=True, help="canonical model name (used in the spec id)")
     r.add_argument("--quantization", default="")
     r.add_argument("--prompt-tokens", type=int, default=512)
@@ -159,6 +174,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--temperature", type=float, default=1.0)
     r.add_argument("--top-p", type=float, default=1.0)
     r.add_argument("--seed", type=int, default=42)
+    r.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                   help="set a spec.extra key (repeatable), e.g. --set slowdown=0.9")
     r.add_argument("--instance", default=None, help="cloud instance type for cost (e.g. gpu.t4.g4dn.xlarge)")
     r.add_argument("--db", default="inferci.db")
     r.add_argument("--json", action="store_true")

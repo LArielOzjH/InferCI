@@ -29,8 +29,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
 from typing import Optional
 
 from ..schema import (
@@ -39,7 +37,7 @@ from ..schema import (
     Environment,
     capture_local_environment,
 )
-from .serving import OpenAIServingRunner
+from .serving import OpenAIServingRunner, http_get_status
 
 _DEFAULT_HOST = "127.0.0.1"
 
@@ -284,16 +282,8 @@ class _GPUCompletionsRunner(OpenAIServingRunner):
                     f"{self.name} exited early (code {self._proc.returncode}). "
                     f"{self._startup_error_hint()} Log tail:\n{self._read_log_tail()}"
                 )
-            try:
-                with urllib.request.urlopen(url, timeout=2.0) as r:
-                    if r.status == 200:
-                        return
-            except urllib.error.HTTPError as e:
-                # 503 while the model is still loading — close the body and
-                # keep polling.
-                e.close()
-            except Exception:
-                pass
+            if http_get_status(url, timeout=2.0) == 200:
+                return
             time.sleep(0.2)
         raise TimeoutError(
             f"{self.name} /health not ready within {timeout}s. "

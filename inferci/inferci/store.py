@@ -80,6 +80,19 @@ class Store:
         d = dict(zip(cols, row))
         return self._row_to_result(d)
 
+    def resolve(self, run_id_or_prefix: str) -> Optional[RunResult]:
+        """Exact match first, then unique-prefix match (short-id UX)."""
+        run = self.get(run_id_or_prefix)
+        if run:
+            return run
+        rows = self.conn.execute(
+            "SELECT run_id FROM runs WHERE run_id LIKE ? ORDER BY created_at DESC LIMIT 2",
+            (run_id_or_prefix + "%",),
+        ).fetchall()
+        if len(rows) == 1:
+            return self.get(rows[0][0])
+        return None
+
     def list(self, limit: int | None = 50, backend: str | None = None,
              model_id: str | None = None) -> list[RunResult]:
         q = "SELECT * FROM runs"

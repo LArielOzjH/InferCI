@@ -59,6 +59,12 @@ class TestStore(unittest.TestCase):
             self.store.insert(self._run())
         self.assertEqual(len(self.store.list(limit=None)), 3)
 
+    def test_resolve_by_prefix(self):
+        r = self._run()
+        self.store.insert(r)
+        self.assertEqual(self.store.resolve(r.run_id[:8]).run_id, r.run_id)
+        self.assertIsNone(self.store.resolve("zzz"))
+
 
 if __name__ == "__main__":
     unittest.main()

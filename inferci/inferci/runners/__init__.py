@@ -12,6 +12,7 @@ from .serving import OpenAIServingRunner
 from .llama_server import LlamaServerRunner
 from .vllm import VLLMRunner
 from .sglang import SGLangRunner
+from .mock import MockRunner
 
 _REGISTRY: dict[str, Runner] = {}
 
@@ -37,9 +38,10 @@ register(OpenAIServingRunner())
 register(LlamaServerRunner())
 register(VLLMRunner())
 register(SGLangRunner())
+register(MockRunner())
 
 __all__ = [
     "Runner", "LlamaCppRunner", "OpenAIServingRunner", "LlamaServerRunner",
-    "VLLMRunner", "SGLangRunner",
+    "VLLMRunner", "SGLangRunner", "MockRunner",
     "get_runner", "register", "available_runners",
 ]

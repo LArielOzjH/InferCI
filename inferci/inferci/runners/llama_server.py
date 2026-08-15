@@ -16,12 +16,10 @@ import socket
 import subprocess
 import tempfile
 import time
-import urllib.error
-import urllib.request
 from typing import Optional
 
 from ..schema import BenchmarkSpec, Environment, RunResult, capture_local_environment
-from .serving import OpenAIServingRunner
+from .serving import OpenAIServingRunner, http_get_status
 
 _DEFAULT_HOST = "127.0.0.1"
 
@@ -160,16 +158,8 @@ class LlamaServerRunner(OpenAIServingRunner):
                     f"llama-server exited early (code {self._proc.returncode}): "
                     f"{self._read_log_tail()}"
                 )
-            try:
-                with urllib.request.urlopen(url, timeout=2.0) as r:
-                    if r.status == 200:
-                        return
-            except urllib.error.HTTPError as e:
-                # 503 while the model is still loading — close the response
-                # body and keep polling.
-                e.close()
-            except Exception:
-                pass
+            if http_get_status(url, timeout=2.0) == 200:
+                return
             time.sleep(0.1)
         raise TimeoutError(
             f"llama-server /health not ready within {timeout}s: {self._read_log_tail()}"

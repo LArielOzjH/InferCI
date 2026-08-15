@@ -111,6 +111,39 @@ def _completions_path(base_url: str) -> str:
     return base + "/v1/completions"
 
 
+def http_get_status(url: str, timeout: float = 2.0) -> int:
+    """GET `url` and return the HTTP status code (0 on any error).
+
+    Uses `http.client` (not `urllib`) so the connection and response are always
+    closed explicitly — urllib's `HTTPError` is a file-like object that can
+    otherwise leak (ResourceWarning) when a server returns 4xx/5xx during
+    health polling.
+    """
+    parts = urllib.parse.urlsplit(url)
+    host = parts.hostname
+    if not host:
+        return 0
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    path = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
+    if parts.scheme == "https":
+        conn = http.client.HTTPSConnection(host, port, timeout=timeout)
+    else:
+        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+    try:
+        conn.request("GET", path)
+        resp = conn.getresponse()
+        try:
+            status = resp.status
+            resp.read()  # drain the body so the connection can close cleanly
+            return status
+        finally:
+            resp.close()
+    except Exception:
+        return 0
+    finally:
+        conn.close()
+
+
 @dataclass
 class _StreamSample:
     """Raw client-side measurement for a single streamed completion."""
