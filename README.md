@@ -85,7 +85,7 @@ See [`inferci/README.md`](inferci/README.md) for the full CLI and
 ## Repository layout
 
 ```
-inferci/      the project: package, tests, spec, docs
+inferci/      the project: package, tests, spec, docs (start at docs/TUTORIAL.md)
 data/         real regression evidence (GitHub issues), with reproducible scripts
 research/     the deep-dive that motivated this project (10 directions + red-team)
 ```
