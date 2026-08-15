@@ -1,0 +1,33 @@
+# third-party build artifacts
+llama.cpp/
+build/
+
+# large model binaries
+models/
+*.gguf
+*.bin
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+
+# local run history databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# uncurated raw data (keep the curated/processed files)
+data/raw/
+data/__pycache__/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
