@@ -59,6 +59,31 @@ inferci run --backend llama_server --model-file ../models/qwen2.5-0.5b-instruct-
 inferci dashboard --db inferci.db --out dashboard.html
 ```
 
+## Runners
+
+| id | what | needs GPU |
+|---|---|---|
+| `llama_cpp` | llama-bench (CPU/Metal) | no |
+| `llama_server` | llama-server, measured TTFT/ITL | no |
+| `openai_serving` | any OpenAI-compatible `/v1/completions` | no |
+| `vllm` | vLLM (connect or launch) | yes (launch) |
+| `sglang` | SGLang (connect or launch) | yes (launch) |
+
+All serving runners support `--batch>1` (concurrent requests → aggregate system
+throughput + per-request TTFT + pooled ITL).
+
+## Quality gate (RecallGate)
+
+Long-context quality-per-$ gate:
+
+```bash
+python -m inferci.quality --base-url http://127.0.0.1:8080 --model my-model \
+    --budgets 512,1024,2048 --instance cpu.m7i.xlarge
+```
+
+Runs a deterministic needle-in-haystack probe at each context budget and emits a
+PASS/FAIL verdict against the full-context baseline, with `quality_per_dollar`.
+
 ## Adding a runner
 
 Implement `inferci.runners.base.Runner` (two methods: `capture_environment`,

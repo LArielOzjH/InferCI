@@ -88,19 +88,23 @@ research/     the deep-dive that motivated this project (10 directions + red-tea
 
 ## Status
 
-**v0.1 (CPU-first vertical, measured latency).** Working:
+**v0.2 (measured latency + concurrency + quality gate).** Working:
 
 - **runners** — `llama_cpp` (llama-bench, CPU/Metal), `llama_server` (measured
-  TTFT/ITL from a real HTTP stream), `openai_serving` (any OpenAI-compatible
-  `/v1/completions` endpoint)
+  TTFT/ITL), `openai_serving` (any OpenAI-compatible `/v1/completions`),
+  `vllm` + `sglang` (GPU-gated wrappers: connect-or-launch)
+- **concurrency** — `batch>1` serving benchmark: aggregate system throughput +
+  per-request TTFT + pooled ITL percentiles
 - **core** — schema, append-only SQLite ledger, regression judge (published
   thresholds + within-tolerance semantics), cost model, CLI
   (`run/list/diff/report/dashboard`), static HTML dashboard
-- **quality** — 46 tests (incl. two real end-to-end runs), GitHub Actions CI,
+- **RecallGate** — long-context quality-per-$ gate (needle-in-haystack probe +
+  PASS/FAIL verdict), `python -m inferci.quality`
+- **quality** — 90 tests (incl. real end-to-end runs on CPU), GitHub Actions CI,
   zero runtime dependencies
 
-Next: vLLM/SGLang serving runners, long-context quality gate (quality-per-$),
-hosted public dashboard.
+Next: hosted public dashboard, ROCm/AMD coverage, real-GPU verification of the
+vLLM/SGLang launch path.
 
 ## Contributing
 

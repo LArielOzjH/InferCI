@@ -22,7 +22,8 @@ and are never caught.
 │  llama_cpp     (llama-bench, CPU/Metal)      │
 │  llama_server  (measured TTFT/ITL)           │
 │  openai_serving (any /v1/completions)        │
-│  vllm / sglang / trt-llm   [planned]         │
+│  vllm / sglang (GPU-gated, connect-or-launch)│
+│  trt-llm       [planned]                     │
 └──────────────┬───────────────────────────────┘
                │  RunResult (schema.py)
 ┌──────────────▼───────────────────────────────┐
@@ -31,6 +32,7 @@ and are never caught.
 │  regression (judge: thresholds + tolerance)  │
 │  cost     (throughput × price → $/1M)        │
 │  dashboard (static HTML from the ledger)     │
+│  quality  (RecallGate: quality-per-$ gate)   │
 │  cli      (run / list / diff / report / dashboard) │
 └──────────────────────────────────────────────┘
 ```
@@ -74,8 +76,8 @@ append-only, open, reproducible ledger builds.
 
 - **D1–14** ✅ core: schema/harness/store/judge/cost/CLI + llama.cpp runner
 - **D15–30** ✅ real CPU PoC + unit tests + CI
-- **D31–60** ✅ serving runners (llama-server + generic OpenAI), measured (not derived) TTFT/ITL, static dashboard
-- **D61–90** ➡️ vLLM/SGLang serving runners, long-context quality gate (quality-per-$), hosted public dashboard, ROCm/AMD coverage
+- **D31–60** ✅ serving runners (llama-server + generic OpenAI), measured TTFT/ITL, concurrency (batch>1), static dashboard
+- **D61–90** ✅ vLLM/SGLang wrappers, RecallGate (quality-per-$) — ➡️ next: real-GPU verification, hosted dashboard, ROCm/AMD coverage
 
 ## 5. Design constraints
 

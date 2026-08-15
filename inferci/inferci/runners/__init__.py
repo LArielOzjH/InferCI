@@ -10,6 +10,8 @@ from .base import Runner
 from .llama_cpp import LlamaCppRunner
 from .serving import OpenAIServingRunner
 from .llama_server import LlamaServerRunner
+from .vllm import VLLMRunner
+from .sglang import SGLangRunner
 
 _REGISTRY: dict[str, Runner] = {}
 
@@ -33,8 +35,11 @@ def available_runners() -> list[str]:
 register(LlamaCppRunner())
 register(OpenAIServingRunner())
 register(LlamaServerRunner())
+register(VLLMRunner())
+register(SGLangRunner())
 
 __all__ = [
     "Runner", "LlamaCppRunner", "OpenAIServingRunner", "LlamaServerRunner",
+    "VLLMRunner", "SGLangRunner",
     "get_runner", "register", "available_runners",
 ]
